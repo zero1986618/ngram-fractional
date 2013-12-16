@@ -1,0 +1,116 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace ngram
+{
+    class Trie<TKey, TData>
+        where TKey : IComparable
+    {
+        private readonly Dictionary<TKey, Trie<TKey, TData>> _subTrie = new Dictionary<TKey, Trie<TKey, TData>>();
+        public Dictionary<TKey, Trie<TKey, TData>> SubTrie
+        {
+            get { return _subTrie; }
+        }
+        public void Clear()
+        {
+            foreach (Trie<TKey, TData> value in _subTrie.Values)
+                value.Clear();
+            _subTrie.Clear();
+        }
+        public TData Data { get; set; }
+        public Trie<TKey, TData> InsertTrie(TKey key)
+        {
+            if (!_subTrie.ContainsKey(key))
+                _subTrie.Add(key, new Trie<TKey, TData>());
+            return _subTrie[key];
+        }
+        public Trie<TKey, TData> InsertTrie(TKey[] keys, int index = 0)
+        {
+            if (keys.Length == index)
+                return this;
+            if (_subTrie.ContainsKey(keys[index]))
+                return _subTrie[keys[index]].InsertTrie(keys, index + 1);
+            _subTrie.Add(keys[index], new Trie<TKey, TData>());
+            return _subTrie[keys[index]].InsertTrie(keys, index + 1);
+        }
+        public Trie<TKey, TData> FindTrie(TKey key)
+        {
+            TKey[] keys = new TKey[1];
+            keys[0] = key;
+            return FindTrie(keys);
+        }
+        public Trie<TKey, TData> FindTrie(TKey[] keys, int index = 0)
+        {
+            if (keys.Length == index)
+                return this;
+            return !_subTrie.ContainsKey(keys[index]) ? null : _subTrie[keys[index]].FindTrie(keys, index + 1);
+        }
+    }
+    class TrieIterator<TKey, TData>
+       where TKey : IComparable
+    {
+        private readonly Trie<TKey, TData> _trie;
+        private TrieIterator<TKey, TData> _subIter;
+        private readonly int _level;
+        private bool _done;
+        private readonly TKey[] _keys;
+        private long _count;
+        public TrieIterator(Trie<TKey, TData> trie, int level)
+        {
+            _trie = trie;
+            _level = level;
+            _keys = _trie.SubTrie.Keys.ToArray();
+        }
+        public void Init()
+        {
+            _subIter = null;
+            _count = 0;
+        }
+
+        public bool MoveNext(out Trie<TKey, TData> ocurrent)
+        {
+            TKey[] keys = new TKey[_level];
+            return MoveNext(out ocurrent, ref keys);
+        }
+
+        public bool MoveNext(out Trie<TKey, TData> ocurrent, ref TKey[] xkeys, int index = 0)
+        {
+            ocurrent = null;
+            if (_level == 0)
+            {
+                if (_done)
+                    return false;
+                _done = true;
+                ocurrent = _trie;
+            }
+            else if (_level == 1)
+            {
+                if (_count == _keys.Length)
+                    return false;
+                ocurrent = _trie.SubTrie[_keys[_count]];
+                xkeys[index] = _keys[_count];
+                _count++;
+            }
+            else
+            {
+                while (true)
+                {
+                    if (_subIter == null)
+                    {
+                        if (_count == _keys.Length || _keys.Length == 0)
+                            return false;
+                        ocurrent = _trie.SubTrie[_keys[_count]];
+                        xkeys[index] = _keys[_count];
+                        _count++;
+                        _subIter = new TrieIterator<TKey, TData>(ocurrent, _level - 1);
+                    }
+                    if (_subIter.MoveNext(out ocurrent, ref xkeys, index + 1))
+                        return true;
+                    _subIter = null;
+                }
+            }
+            return true;
+        }
+    }
+}

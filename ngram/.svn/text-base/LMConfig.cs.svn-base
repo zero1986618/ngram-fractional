@@ -1,0 +1,81 @@
+﻿using System;
+using System.Configuration;
+namespace ngram
+{
+    class LMConfig
+	{
+		static string[] args;        
+		public static void SetArgs(string[] xargs)
+		{
+            args = xargs;
+		}
+        static string GetCmdOpt(string opt)
+        {
+            string nopt = opt.ToLower();
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (args[i].Length <= 1 || args[i][0] != '-')
+                    continue;
+                if (args[i].Substring(1).ToLower() == nopt && i + 1 < args.Length && !args[i + 1].StartsWith("-"))
+                    return args[i + 1];
+                if (args[i].Substring(1).ToLower() == nopt)
+                    return "true";
+            }
+            return null;
+        }
+		static string GetOpt(string opt)
+		{
+			string v = GetCmdOpt(opt);
+			if (v != null)
+				return v;
+			return ConfigurationManager.AppSettings[opt];
+		}		
+		public static string GetOptionString(string key)
+		{
+			string v = GetOpt(key);
+			return v == null ? null : v.Trim();
+		}
+		public static string[] GetOptionStringArray(string key)
+		{
+            return GetOpt(key).Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+		}
+		public static int GetOptionInt(string key, int defaultValue)
+		{
+			string v = GetOpt(key);
+			return v == null ? defaultValue : int.Parse(v);
+		}        
+		public static int[] GetOptionIntList(string key)
+		{
+		    string v = GetOpt(key);
+		    if (v == null)
+		        return null;
+		    string[] tokens = v.Trim().Split(new[] {' ', '\t'}, StringSplitOptions.RemoveEmptyEntries);
+		    int[] ret = new int[tokens.Length];
+		    for (int i = 0; i < tokens.Length; i++)
+		        ret[i] = int.Parse(tokens[i]);
+		    return ret;
+		}
+
+	    public static bool GetOptionBool(string key, bool defaultValue)
+		{
+			string v = GetOpt(key);
+            return v == null ? defaultValue : string.Compare(v, "1") == 0 || string.Compare(v, "true", true) == 0;
+		}
+		public static float GetOptionFloat(string key, float defaultValue)
+		{
+			string v = GetOpt(key);
+			return v == null ? defaultValue : float.Parse(v);
+		}
+		public static float[] GetOptionFloatList(string key)
+		{
+			string v = GetOpt(key);
+			if (v == null)
+				return null;
+            string[] tokens = v.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+			float[] fvect = new float[tokens.Length];
+			for (int i = 0; i < tokens.Length; i++)
+				fvect[i] = float.Parse(tokens[i]);
+			return fvect;
+		}
+	}
+}

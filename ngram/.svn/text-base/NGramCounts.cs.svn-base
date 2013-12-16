@@ -1,0 +1,119 @@
+﻿using System;
+using System.IO;
+
+namespace ngram
+{
+    class NGramCounts
+    {
+        public NGramCounts(int order)
+        {
+            _order = order;
+            Vocab = new Vocab { UnkIsWord = false, ToLower = false };
+            _stats = new TextStats();
+        }
+
+        long NumNGrams(int order)
+        {
+            if (order < 1)
+                return 0;
+            long number = 0;
+            TrieIterator<int, long > iter = new TrieIterator<int, long>(this.Counts, order - 1);
+            Trie<int, long > current;
+            while (iter.MoveNext(out current))
+                number += current.Data;
+            return number;
+        }
+        /*
+        public void Write(string file)
+        {
+            StreamWriter slm = new StreamWriter(file, false, Encoding.GetEncoding(936));
+            slm.WriteLine("\n\\\\data\\\\");
+            int[] ngrams = new int[_order + 1];
+            for (int level = 1; level <= _order; level++)
+            {
+                ngrams[level] = (int) NumNGrams(level);
+                slm.WriteLine("ngram {0}={1}", level, ngrams[level]);
+            }
+            for (int level = 1; level <= _order; level++)
+            {
+                slm.WriteLine("\n\\\\{0}-grams:", level);
+                TrieIterator<int, long > iter = new TrieIterator<int, long>(Counts, level - 1);
+                Trie<int, long > current;
+                int[] context = new int[level - 1];
+                int[] scontext = new int[level];
+                while (iter.MoveNext(out current, ref context))
+                {
+                    string[] words = Vocab.GetWords(context);
+                    foreach (int index in current.Data.Keys)
+                    {
+                        float prob = current.Data.Probs[index];
+                        slm.Write("{0:F7}\t", float.IsInfinity(prob) ? LogPPseudoZero : prob);
+                        slm.Write(string.Join(" ", words.Reverse()));
+                        slm.Write(" {0}\t", _vocab.GetWords(index));
+                        if (level < _order)
+                        {
+                            scontext[0] = index;
+                            for (int i = 0; i < context.Length; i++)
+                                scontext[i + 1] = context[i];
+                            Trie<int, BOnode> node = _contexts.FindTrie(scontext);
+                            slm.Write("{0:F7}", node == null ? LogPPseudoZero : node.Data.Bow);
+                        }
+                        slm.WriteLine();
+                    }
+                }
+            }
+            slm.WriteLine("\n\\\\end\\\\");
+            slm.Close();
+        }
+        */
+        readonly int _order;
+        public int Order { get { return _order; } }
+        public Trie<int, long> Counts = new Trie<int, long>();
+        public void IncrementCounts(int[] words, int start, int factor)
+        {
+            Trie<int, long> node = Counts;
+            for (int i = start; i < _order + start && i < words.Length; i++)
+            {
+                node = node.InsertTrie(words[i]);
+                node.Data += factor;
+            }
+        }
+
+        public virtual int CountString(string sentence)
+        {
+            string[] words = sentence.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            int[] wids = new int[words.Length + 2];
+            int[] getwids = Vocab.AddWords(words);
+            for (int i = 0; i < getwids.Length; i++)
+                wids[i + 1] = getwids[i];
+            wids[0] = Vocab.BOSIndex;
+            wids[wids.Length - 1] = Vocab.EOSIndex;
+            _stats.NumLines += 1;
+            _stats.NumWords += words.Length;
+            for (int index = 0; index < wids.Length; index++)
+                IncrementCounts(wids, index, 1);
+            return wids.Length;
+        }
+
+        public virtual int CountFile(string file)
+        {
+            int numWords = 0;
+            int lc = 0;
+            StreamReader sr = new StreamReader(file);
+            while (true)
+            {
+                lc++;
+                if (lc % 100000 == 0)
+                    Console.WriteLine(lc);
+                string line = sr.ReadLine();
+                if (line == null)
+                    break;
+                numWords += CountString(line);
+            }
+            return numWords;
+        }
+        // compute memory stats
+        public readonly Vocab Vocab;			// vocabulary
+        readonly TextStats _stats;			// training data stats
+    }
+}

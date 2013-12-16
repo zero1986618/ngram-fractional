@@ -1,0 +1,432 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+
+namespace ngram
+{
+    class BOnode
+    {
+        public float Bow; // backoff weight
+        public Dictionary<int, float> Probs = new Dictionary<int, float>(); // word probabilities
+    }
+    class LM
+    {
+        private readonly Vocab _vocab;
+        private readonly Trie<int, BOnode> _contexts;
+        private readonly int _order;        
+        private bool trustTotals = false;
+        public LM(Vocab vocab, int order)
+        {
+            _vocab = vocab;
+            _order = order;
+            _contexts = new Trie<int, BOnode>();
+        }
+        private float WordProbBO(int word, int[] context, int clen)
+        {
+            double logp = double.PositiveInfinity;
+            double bow = 0;
+            int i = 0;
+            Trie<int, BOnode> trieNode = _contexts;
+            do
+            {
+                if (trieNode.Data.Probs.ContainsKey(word))
+                {
+                    logp = trieNode.Data.Probs[word];
+                    bow = 0;
+                }
+                if (i >= clen || i >= context.Length)
+                    break;
+                Trie<int, BOnode> next = trieNode.FindTrie(context[i]);
+                if (next != null && next.Data != null)
+                {
+                    bow += next.Data.Bow;
+                    trieNode = next;
+                    i++;
+                }
+                else break;
+            } while (true);
+            return (float)(logp + bow);
+        }
+
+        static int VocabSize(Vocab vocab)
+        {
+            return vocab.Word2Index.Keys.Count(key => !vocab.IsNonEvent(vocab.Word2Index[key]));
+        }
+
+        public bool Estimate(NGramCounts stats, Discount[] discounts)
+        {
+            int vocabSize = VocabSize(stats.Vocab);
+            _contexts.Clear();
+            // Ensure <s> unigram exists (being a non-event, it is not inserted in distributeProb(), yet is assumed by much other software).            
+            {
+                _contexts.Data = new BOnode();
+                _contexts.Data.Probs.Add(_vocab.BOSIndex, float.PositiveInfinity);
+            }
+            for (int i = 1; i <= _order; i++)
+            {
+                bool noDiscount = (discounts == null) || (discounts[i - 1] == null) || discounts[i - 1].Nodiscount();
+                if (!noDiscount && discounts[i - 1] != null)
+                    discounts[i - 1].PrepareCounts(stats, i, _order);
+                TrieIterator<int, long> nGramCountsIter = new TrieIterator<int, long>(stats.Counts, i - 1);
+                Trie<int, long> current;
+                int[] contextCount = new int[i - 1];
+                while (nGramCountsIter.MoveNext(out current, ref contextCount))
+                {
+                    if ((i > 1 && contextCount[i - 2] == _vocab.EOSIndex) ||
+                        _vocab.IsNonEvent(_vocab.UnkIndex) && contextCount.Any(t => t == _vocab.UnkIndex))
+                        continue;
+                    //if (i == 5 && contextCount[0] == 34 && contextCount[1] == 65537 && contextCount[2] == 65538 && contextCount[3] == 92)
+                    //    Console.WriteLine();
+                    //if (currOrder == 4 && contextCount[0] == 1 && contextCount[1] == 8683 && contextCount[2] == 33198)
+                    //    Console.WriteLine();
+                    //if (i == 4 && contextCount[0] == 65537 && contextCount[1] == 65538 && contextCount[2] == 92)
+                    //    Console.WriteLine();
+                    bool interpolate = discounts != null && discounts[i - 1] != null && discounts[i - 1].Interpolate;
+                    TrieIterator<int, long> followIter =
+                        new TrieIterator<int, long>(stats.Counts.InsertTrie(contextCount), 1);
+                    Trie<int, long> ngramCount;
+                    long totalCount = 0;
+                    long observedVocab = 0, min2Vocab = 0, min3Vocab = 0;
+                    int[] word = new int[1];
+                    while (followIter.MoveNext(out ngramCount, ref word))
+                    {
+                        if (_vocab.IsNonEvent(word[0]))
+                            continue;
+                        totalCount += ngramCount.Data;
+                        observedVocab++;
+                        if (ngramCount.Data >= 2)
+                            min2Vocab++;
+                        if (ngramCount.Data >= 3)
+                            min3Vocab++;
+                    }
+                    if (i > 1 && trustTotals)
+                        totalCount = current.Data;
+                    if (totalCount == 0)
+                        continue;
+                    int[] reverse = new int[contextCount.Length];
+                    for (int j = 0; j < reverse.Length; j++)
+                        reverse[j] = contextCount[contextCount.Length - 1 - j];
+                    while (true)
+                    {
+                        if (i == 4 && reverse[0] == 5 && reverse[1] == 131)
+                            Console.WriteLine();
+                        followIter.Init();
+                        double totalProb = 0;
+                        while (followIter.MoveNext(out ngramCount, ref word))
+                        {
+                            if (_vocab.GetWords(word[0]) == "\"110\"")
+                                Console.WriteLine();
+                            float lprob;
+                            double discount;
+                            if (i > 1 && ngramCount.Data == 0)
+                                continue;             
+                            if (_vocab.IsNonEvent(word[0]))
+                            {
+                                if (i > 1 || word[0] == _vocab.UnkIndex)
+                                    continue;
+                                lprob = float.PositiveInfinity;
+                                discount = 1.0;
+                            }
+                            else
+                            {
+                                discount = noDiscount
+                                               ? 1.0
+                                               : discounts[i - 1].discount(ngramCount.Data, totalCount, observedVocab);
+                                double prob = discount*ngramCount.Data/totalCount;
+                                if (interpolate)
+                                {
+                                    double lowerOrderWeight = discounts[i - 1].LowerOrderWeight(totalCount,
+                                                                                                observedVocab, min2Vocab,
+                                                                                                min3Vocab);
+                                    double lowerOrderProb = -1*Math.Log10(vocabSize);
+                                    if (i > 1)
+                                        lowerOrderProb = WordProbBO(word[0], reverse, i - 2);
+                                    prob += lowerOrderWeight*Math.Pow(10, lowerOrderProb);
+                                }
+                                lprob = (float) Math.Log10(prob);
+                                if (discount != 0)
+                                    totalProb += prob;
+                            }
+                            if (discount == 0)
+                                RemoveProb(word[0], reverse);
+                            else
+                            {
+                                Trie<int, BOnode> btrie = _contexts.InsertTrie(reverse);
+                                //if (reverse.Length == 1 && reverse[0] == 1)// && word[0] == 6
+                                //    Console.WriteLine();
+
+                                if (btrie.Data == null)
+                                    btrie.Data = new BOnode();
+                                if (btrie.Data.Probs == null)
+                                    btrie.Data.Probs = new Dictionary<int, float>();
+                                if (!btrie.Data.Probs.ContainsKey(word[0]))
+                                    btrie.Data.Probs.Add(word[0], lprob);
+                            }
+                        }
+                        if (!noDiscount && totalCount > 0 && observedVocab < vocabSize && totalProb > 1.0 - ProbEpsilon)
+                        {
+                            if (interpolate)
+                                interpolate = false;
+                            else
+                                totalCount += 1;
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                ComputeBOWs(i - 1);
+            }
+            FixupProbs();
+            return true;
+        }
+
+        // Remove a prob entry from the n-gram trie
+        void RemoveProb(int word, int[] context)
+        {
+            Trie<int, BOnode> bonode = _contexts.FindTrie(context);
+            if (bonode != null)
+                bonode.Data.Probs.Remove(word);
+        }
+        int NumNGrams(int order)
+        {
+            if (order < 1)
+                return 0;
+            int number = 0;
+            TrieIterator<int, BOnode> iter = new TrieIterator<int, BOnode>(_contexts, order - 1);
+            Trie<int, BOnode> current;
+            while (iter.MoveNext(out current))
+                if (current.Data != null)
+                    number += current.Data.Probs.Count;
+            return number;
+        }
+
+        public void Write(string file)
+        {
+            StreamWriter slm = new StreamWriter(file, false, Encoding.GetEncoding(936));
+            slm.WriteLine("\n\\data\\");
+            int[] ngrams = new int[_order + 1];
+            for (int level = 1; level <= _order; level++)
+            {
+                ngrams[level] = NumNGrams(level);
+                slm.WriteLine("ngram {0}={1}", level, ngrams[level]);
+            }
+            for (int level = 1; level <= _order; level++)
+            {
+                slm.WriteLine("\n\\{0}-grams:", level);
+                TrieIterator<int, BOnode> iter = new TrieIterator<int, BOnode>(_contexts, level - 1);
+                Trie<int, BOnode> current;
+                int[] context = new int[level - 1];
+                int[] scontext = new int[level];
+                while (iter.MoveNext(out current, ref context))
+                {
+                    string[] words = _vocab.GetWords(context);
+                    if (current.Data == null)
+                        continue;
+                    foreach (int index in current.Data.Probs.Keys)
+                    {
+                        float prob = current.Data.Probs[index];
+                        slm.Write("{0:F7}\t", float.IsInfinity(prob) ? LogPPseudoZero : prob);
+                        slm.Write(string.Join(" ", words.Reverse()));
+                        slm.Write(" {0}\t", _vocab.GetWords(index));
+                        //if (_vocab.GetWords(index) == "</s>")//\"110\""
+                        //    Console.WriteLine();
+                        if (level < _order)
+                        {
+                            scontext[0] = index;
+                            for (int i = 0; i < context.Length; i++)
+                                scontext[i + 1] = context[i];
+                            Trie<int, BOnode> node = _contexts.FindTrie(scontext);
+                            if (node != null)
+                                slm.Write("{0:F7}", node.Data == null ? LogPPseudoZero : node.Data.Bow);
+                        }
+                        slm.WriteLine();
+                    }
+                }
+            }
+            slm.WriteLine("\n\\end\\");
+            slm.Close();
+        }
+
+        private const double LogPPseudoZero = -99;
+        void FixupProbs()
+        {
+            int[] levelCounts = new int[_order + 1];
+            Trie<int, long> contextsToAdd = new Trie<int, long>();
+            for (int i = 1; i < _order; i++)
+            {
+                TrieIterator<int, BOnode> iter = new TrieIterator<int, BOnode>(_contexts, i);
+                int[] context = new int[i];
+                Trie<int, BOnode> current;
+                while (iter.MoveNext(out current, ref context))
+                {
+                    if (i == 3 && context[0] == 5 && context[1] == 131)
+                        Console.WriteLine();
+
+                    if (i == 3 && context[0] == 7 && context[1] == 18305)
+                        Console.WriteLine();
+                    if (i == 3 && context[0] == 20 && context[1] == 7 && context[2] == 18305)
+                        Console.WriteLine();
+                    for (int j = 0; j < i; j++)
+                    {
+                        int[] subcontext = new int[context.Length - j - 1];
+                        for (int k = 0; k < subcontext.Length; k++)
+                            subcontext[k] = context[k + j + 1];
+                        float prob = FindProb(context[j], subcontext);
+                        if (prob != float.MinValue)
+                            continue;
+                        int[] scontext = new int[i - j];
+                        for (int k = 0; k < scontext.Length; k++)
+                            scontext[k] = context[k + j];
+                        Trie<int, long> node = contextsToAdd.InsertTrie(scontext);
+                        node.Data = 1;
+                        levelCounts[i - j]++;
+                    }
+                }
+            }
+            for (int i = 1; i < _order; i++)
+            {                
+                Trie<int, long> node;
+                int[] context = new int[i];
+                TrieIterator<int, long> iter = new TrieIterator<int, long>(contextsToAdd, i);
+                while (iter.MoveNext(out node, ref context))
+                {
+                    if (i == 3 && context[0] == 7 && context[1] == 18305)
+                        Console.WriteLine();
+                    if (i == 3 && context[0] == 20 && context[1] == 7)
+                        Console.WriteLine();
+                    if (node.Data > 0)
+                    {
+                        // we cannot combine the two statements below since insertProb() creates a zero prob entry, which would
+                        // prevent wordProbBO() from computing the backed-off estimate!
+                        int[] scontext = new int[context.Length - 1];
+                        for (int j = 0; j < scontext.Length; j++)
+                            scontext[j] = context[j + 1];
+                        double backoffProb = WordProbBO(context[0], scontext, i - 1);
+                        Trie<int, BOnode> snode = _contexts.FindTrie(scontext);
+                        if (snode.Data == null)
+                            snode.Data = new BOnode();
+                        if (snode.Data.Probs.ContainsKey(context[0]))
+                            snode.Data.Probs[context[0]] = (float)backoffProb;
+                        else
+                            snode.Data.Probs.Add(context[0], (float)backoffProb);
+                    }
+                }
+            }
+        }
+
+        private bool ComputeBOW(BOnode node, int[] context, int clen, ref double numerator, ref double denominator)
+        {
+            numerator = 1;
+            denominator = 1;
+            foreach (int key in node.Probs.Keys)
+            {
+                if (!float.IsInfinity(node.Probs[key]))
+                    numerator -= Math.Pow(10, node.Probs[key]);//Math.Pow(10, lowerOrderProb)
+                if (clen > 0)
+                    denominator -= Math.Pow(10, WordProbBO(key, context, clen - 1));
+            }
+            if (numerator < 0 && numerator > -1 * ProbEpsilon)
+                numerator = 0;
+            if (denominator < 0 && denominator > -1 * ProbEpsilon)
+                denominator = 0;
+            if (denominator == 0 && numerator > ProbEpsilon)
+            {
+                double scale = -1 * Math.Log(1 - numerator);
+                foreach (int key in node.Probs.Keys)
+                    node.Probs[key] += (float)scale;
+                numerator = 0;
+                return true;
+            }
+            if (numerator < 0)
+                return false;
+            if (denominator < 0)
+            {
+                if (numerator > ProbEpsilon)
+                    return false;
+                numerator = 0;
+                denominator = 0;
+                return true;
+            }
+            return true;
+        }
+
+        const double LogPOne = 0.0;// log(1)
+        const double ProbEpsilon = 3e-06;// probability sums less than this in magnitude are effectively considered 0 (assuming they were obtained by summing LogP's)
+        //re-compute backoff weight for all contexts of a given order
+        private void ComputeBOWs(int order)
+        {
+            int[] context = new int[order];
+            TrieIterator<int, BOnode> iter1 = new TrieIterator<int, BOnode>(_contexts, order);
+            Trie<int, BOnode> current;
+            while (iter1.MoveNext(out current, ref context))
+            {
+                if (order == 1 && _vocab.GetWords(context[0]) == "</s>")
+                    Console.WriteLine();
+                double numerator = 0, denominator = 0;
+                if (ComputeBOW(current.Data, context, order, ref numerator, ref denominator))
+                {
+                    if (order == 0)
+                        DistributeProb(numerator, context);
+                    else if (numerator == 0 && denominator == 0)
+                        current.Data.Bow = (float)LogPOne;
+                    else
+                        current.Data.Bow = (float) (Math.Log10(numerator) - Math.Log10(denominator));
+                }
+                else
+                    current.Data.Bow = float.PositiveInfinity;
+            }
+        }
+
+        void DistributeProb(double mass, int[] context)
+        {
+            int numWords = 0;
+            int numZeroProbs = 0;
+            foreach (int value in _vocab.Word2Index.Values)
+            {
+                if (!_vocab.IsNonEvent(value))
+                {
+                    numWords++;
+                    Trie<int, BOnode> node = _contexts.FindTrie(context);
+                    if (!node.Data.Probs.ContainsKey(value) ||
+                        float.IsInfinity(node.Data.Probs[value]))
+                        numZeroProbs++;
+                    if (!node.Data.Probs.ContainsKey(value))
+                        node.Data.Probs[value] = float.PositiveInfinity;
+                }
+            }
+            double add1 = mass / numZeroProbs;
+            double add2 = mass / numWords;
+            foreach (int index in _vocab.Word2Index.Values)
+            {
+                if (!_vocab.IsNonEvent(index))
+                {
+                    Trie<int, BOnode> node = _contexts.FindTrie(context);
+                    if (numZeroProbs > 0)
+                    {
+                        if (node.Data.Probs.ContainsKey(index) && float.IsInfinity(node.Data.Probs[index]))
+                            node.Data.Probs[index] = (float)Math.Log10(add1);
+                        if (!node.Data.Probs.ContainsKey(index))
+                            node.Data.Probs.Add(index, 0);
+                    }
+                    else
+                    {
+                        if (!node.Data.Probs.ContainsKey(index))
+                            node.Data.Probs.Add(index, 0);
+                        node.Data.Probs[index] = (float)Math.Log10(Math.Pow(10, node.Data.Probs[index]) + add2);
+                    }
+                }
+            }
+        }
+
+        float FindProb(int word, int[] context)
+        {
+            Trie<int, BOnode> bonode = _contexts.FindTrie(context);
+            if (bonode == null) return float.MinValue;
+            if (bonode.Data == null)
+                return float.MinValue;
+            return bonode.Data.Probs.ContainsKey(word) ? bonode.Data.Probs[word] : float.MinValue;
+        }
+    }
+}

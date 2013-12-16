@@ -1,0 +1,333 @@
+﻿using System;
+using System.IO;
+
+namespace ngram
+{
+    partial class Program
+    {
+        static void testEnum()
+        {
+            int level = 5;
+            BinaryFile binaryFile = new BinaryFile("counts.eee.bin");
+            BinLMIter binLMIter = new BinLMIter(binaryFile, level);
+            BinaryWriter binaryWriter = new BinaryWriter(new FileStream("counts" + level + ".enum.bin", FileMode.Create));
+            int[] keys = new int[level + 1];
+            int currPos = -1;
+            while ((currPos = binLMIter.MoveNextX(ref keys)) > 0)
+            {
+                foreach (int key in keys)
+                    binaryWriter.Write(key);
+            }
+            binaryWriter.Close();
+        }
+
+        static void TestLMConverted()
+        {
+            BinaryFile binaryFile = new BinaryFile("", Mode.BinProb);
+
+        }
+
+        static void TestConvertBin()
+        {
+            BinaryFile binaryFile = new BinaryFile("counts.unk.bin");
+            binaryFile.DumpBinLM("e.lm.bin");
+        }
+
+        static unsafe void testOutputLMs()
+        {
+            BinaryFile binaryFile = new BinaryFile("counts.recurse.64.bin");
+            int[] counts = new int[binaryFile.Order + 1];
+            for (int level = 1; level <= binaryFile.Order; level++)
+            {
+                BinLMIter binLMIter = new BinLMIter(binaryFile, level);
+                int[] keys = new int[level + 1];
+                int currPos;
+                int validGrams = 0;
+                int totalGrams = 0;
+                while ((currPos = binLMIter.MoveNextX(ref keys)) >= 0)
+                {
+                    totalGrams++;
+                    if (level == binaryFile.Order)
+                    {
+                        LeafNode innerNode =
+                            ((LeafNode*)binaryFile.FinalPtr)[currPos - binaryFile.PAccCount[level - 1]];
+                        if (float.IsNaN(innerNode.Prob))
+                            continue;
+                        validGrams++;
+                    }
+                    else
+                    {
+                        InnerNode innerNode = ((InnerNode*)binaryFile.InnerPtr)[currPos];
+                        if (float.IsNaN(innerNode.Prob))
+                            continue;
+                        validGrams++;
+                    }
+                }
+                counts[level] = validGrams;
+            }
+
+            StreamWriter streamWriter = new StreamWriter("e." + binaryFile.Order + "-gram.64.lm");
+            streamWriter.WriteLine();
+            streamWriter.WriteLine(@"\data\");
+            for (int i = 1; i < counts.Length; i++)
+                streamWriter.WriteLine("ngram {0}={1}", i, counts[i]);
+            streamWriter.WriteLine();
+
+            for (int level = 1; level <= binaryFile.Order; level++)
+            {
+                streamWriter.WriteLine(@"\{0}-grams:", level);
+                BinLMIter binLMIter = new BinLMIter(binaryFile, level);
+
+                int[] keys = new int[level + 1];
+                int currPos;
+                Vocab vocab = new Vocab("vocab.txt");
+                int validGrams = 0;
+                int totalGrams = 0;
+                int[] context = new int[level];
+                while ((currPos = binLMIter.MoveNextX(ref keys)) >= 0)
+                {
+                    totalGrams++;
+                    if (level == binaryFile.Order)
+                    {
+                        LeafNode innerNode = ((LeafNode*)binaryFile.FinalPtr)[currPos - binaryFile.PAccCount[level - 1]];
+                        if (float.IsNaN(innerNode.Prob))
+                            continue;
+                        validGrams++;
+                        for (int i = 0; i < context.Length; i++)
+                            context[i] = keys[i];
+                        streamWriter.WriteLine(innerNode.Prob + "\t" + string.Join(" ", vocab.GetWords(context)));
+                    }
+                    else
+                    {
+                        InnerNode innerNode = ((InnerNode*)binaryFile.InnerPtr)[currPos];
+                        if (float.IsNaN(innerNode.Prob))
+                            continue;
+                        validGrams++;
+
+                        for (int i = 0; i < context.Length; i++)
+                            context[i] = keys[i];
+                        string ngrams = string.Join(" ", vocab.GetWords(context));
+                        if (ngrams == "\"most-favored-nation \" status")
+                            Console.WriteLine();
+                        float prob = innerNode.Prob;
+                        streamWriter.WriteLine((float.IsPositiveInfinity(prob) ? -99 : prob) + "\t" +
+                                               ngrams + "\t" + innerNode.Bow);
+                    }
+                }
+                streamWriter.WriteLine();
+            }
+            streamWriter.WriteLine(@"\end\");
+            streamWriter.Close();
+        }
+
+        static unsafe void testOutputLM(int level)
+        {
+            //int level = 3;
+            BinaryFile binaryFile = new BinaryFile("counts.eee.bin");
+            BinLMIter binLMIter = new BinLMIter(binaryFile, level);
+            StreamWriter streamWriter = new StreamWriter("e." + level + "-gram.lm");
+            int[] keys = new int[level + 1];
+            int currPos;
+            Vocab vocab = new Vocab("vocab.txt");
+            int validGrams = 0;
+            int totalGrams = 0;
+            int[] context = new int[level];
+            while ((currPos = binLMIter.MoveNextX(ref keys)) >= 0)
+            {
+                totalGrams++;
+                if (level == binaryFile.Order)
+                {
+                    LeafNode innerNode = ((LeafNode*)binaryFile.FinalPtr)[currPos - binaryFile.PAccCount[level - 1]];
+                    if (float.IsNaN(innerNode.Prob))
+                        continue;
+                    validGrams++;
+                    for (int i = 0; i < context.Length; i++)
+                        context[i] = keys[i];
+                    streamWriter.WriteLine(innerNode.Prob + "\t" + string.Join(" ", vocab.GetWords(context)));
+                }
+                else
+                {
+                    InnerNode innerNode = ((InnerNode*)binaryFile.InnerPtr)[currPos];
+                    if (float.IsNaN(innerNode.Prob))
+                        continue;
+                    validGrams++;
+
+                    for (int i = 0; i < context.Length; i++)
+                        context[i] = keys[i];
+                    string ngrams = string.Join(" ", vocab.GetWords(context));
+                    if (ngrams == "\"most-favored-nation \" status")
+                        Console.WriteLine();
+                    float prob = innerNode.Prob;
+                    streamWriter.WriteLine((float.IsPositiveInfinity(prob) ? -99 : prob) + "\t" +
+                                           ngrams + "\t" + innerNode.Bow);
+                }
+            }
+            Console.WriteLine("{0}-grams: {1}", level, totalGrams);
+            Console.WriteLine("{0}-grams: {1}", level, validGrams);
+            streamWriter.Close();
+        }
+
+        static void testSRILM()
+        {
+            int order = 5;
+            NGramCounts ngcounts = new NGramCounts(order);
+            ngcounts.CountFile(@"c:/zhaoyg/e.2w.txt");
+            Discount[] discounts = new Discount[order];
+            for (int i = 1; i <= order; i++)
+            {
+                discounts[i - 1] = new ModifiedKneserNey(Discount.gtmin[i]) { Interpolate = true };
+                discounts[i - 1].Estimate(ngcounts, i);
+            }
+            ngcounts.Vocab.UnkIsWord = true;
+            LM lm = new LM(ngcounts.Vocab, order);
+
+            lm.Estimate(ngcounts, discounts);
+            lm.Write("ec.lm");
+        }
+
+        static void testGenLevelCounts()
+        {
+            int _order = 5;
+            BinLM bin = new BinLM(@"e.clean.txt", _order);
+            bin.Test2();
+        }
+        static void testGenBinR()
+        {
+            int _order = 5;
+            //BinLM bin = new BinLM(@"part.en", _order);
+            //bin.Test2();
+            //bin.GenBin("counts.eee.bin");
+            RecurseGenBin binx = new RecurseGenBin(_order);
+            binx.GenBin("counts.recurse.64.bin");
+        }
+        static void testGenBin()
+        {
+            int _order = 5;
+            //BinLM bin = new BinLM(@"part.en", _order);
+            //bin.Test2();
+            //bin.GenBin("counts.eee.bin");
+            BinLMx binx = new BinLMx(_order);
+            binx.GenBin("counts.unk.bin");
+        }
+
+        static void testSearch()
+        {
+            BinaryFile binaryFile = new BinaryFile("counts2.bin");
+            int[] wids = new[] { 9, 9 };//, 6, 5, 4
+            Console.WriteLine(binaryFile.FindPrefixNode(wids, binaryFile.Order));
+        }
+
+        static void testDiscount()
+        {
+            BinaryFile binaryFile = new BinaryFile("counts.e.bin");
+            int order = 5;
+            Discount[] discounts = new Discount[order];
+            for (int i = 1; i <= order; i++)
+            {
+                discounts[i - 1] = new ModifiedKneserNey(Discount.gtmin[i]) { Interpolate = true };
+                discounts[i - 1].Estimate(binaryFile, i);
+            }
+        }
+
+        static void testVocab()
+        {
+            Vocab vocab = new Vocab();
+            vocab.GetVocab("e.clean.txt");
+            vocab.Dump("vocab.txt");
+        }
+
+        static void testbLM()
+        {
+            BinaryFile binaryFile = new BinaryFile("counts.recurse.64.bin");
+            int order = 5;
+            Vocab vocab = new Vocab("vocab.txt");
+            vocab.UnkIsWord = true;
+            binaryFile.vocab = vocab;
+            Discount[] discounts = new Discount[order];
+            for (int i = 1; i <= order; i++)
+            {
+                discounts[i - 1] = new ModifiedKneserNey(Discount.gtmin[i]) { Interpolate = true };
+                discounts[i - 1].Estimate(binaryFile, i);
+            }
+            bLM bLM = new bLM(vocab, binaryFile);
+            bLM.Estimate(discounts);
+        }
+        public static bool CompareByte(string file1, string file2)
+        {
+            BinaryReader binaryReader1 = new BinaryReader(new FileStream(file1, FileMode.Open));
+            BinaryReader binaryReader2 = new BinaryReader(new FileStream(file2, FileMode.Open));
+            if (binaryReader1.BaseStream.Length != binaryReader2.BaseStream.Length)
+                return false;
+            while (binaryReader1.BaseStream.Position < binaryReader1.BaseStream.Length)
+            {
+                int x1 = binaryReader1.ReadInt32();
+                int x2 = binaryReader2.ReadInt32();
+                if (x1 != x2)
+                    return false;
+            }
+            return true;
+        }
+        private static int CompareList(int[] list1, int[] list2)
+        {
+            if (list1 == null || list2 == null || list1.Length != list2.Length)
+                throw new Exception("List null or length not match!");
+            for (int i = 0; i < list1.Length - 1; i++)
+                if (list1[i] != list2[i])
+                    return list1[i] - list2[i];
+            return 0;
+        }
+
+
+        unsafe public static void TestBinOrder(string binfile)
+        {
+            BinaryFile binaryFile = new BinaryFile(binfile);
+            int[] finalPos = new int[binaryFile.Order];
+            for (int currOrder = 0; currOrder < binaryFile.Order - 1; currOrder++)
+            {
+                InnerNode currNode = ((InnerNode*)binaryFile.InnerPtr)[binaryFile.PAccCount[currOrder + 1] - 1];
+                Console.WriteLine(currNode.Child == binaryFile.Ngramcounts[currOrder + 1]);
+            }
+            for (int currOrder = 0; currOrder < binaryFile.Order - 1; currOrder++)
+            {
+                for (int currPos = binaryFile.PAccCount[currOrder];
+                     currPos < binaryFile.PAccCount[currOrder + 1] - 1;
+                     currPos++)
+                {
+                    InnerNode currNode = ((InnerNode*)binaryFile.InnerPtr)[currPos];
+                    InnerNode nextNode = ((InnerNode*)binaryFile.InnerPtr)[currPos + 1];
+                    if (currNode.Child < 0)
+                    {
+                        Console.WriteLine("Child less than 0 at order={0} pos={1}", currOrder, currPos);
+                        return;
+                    }
+                    if (currNode.Child > nextNode.Child)
+                    {
+                        Console.WriteLine("Child of current node larger than next node at order={0} pos={1}", currOrder,
+                                          currPos);
+                        return;
+                    }
+                }
+            }
+            Console.WriteLine("right!");
+        }
+        public static void TestCountsOrder(string countfile, int order)
+        {
+            int[] prevNGrams = new int[order + 1];
+            int[] currNGrams = new int[order + 1];
+            BinaryReader binaryReader = new BinaryReader(new FileStream(countfile, FileMode.Open));
+            while (binaryReader.BaseStream.Position < binaryReader.BaseStream.Length)
+            {
+                for (int i = 0; i < order + 1; i++)
+                    currNGrams[i] = binaryReader.ReadInt32();
+                if (CompareList(prevNGrams, currNGrams) > 0)
+                {
+                    Console.WriteLine("error");
+                    return;
+                }
+                for (int i = 0; i < order + 1; i++)
+                    prevNGrams[i] = currNGrams[i];
+            }
+            Console.WriteLine("same");
+        }
+    }
+}

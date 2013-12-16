@@ -1,0 +1,13 @@
+﻿namespace ngram
+{
+    class TextStats
+    {
+        public int NumLines;
+        public int NumWords;
+        public TextStats(int numLines = 0, int numWords = 0)
+        {
+            NumWords = numWords;
+            NumLines = numLines;
+        }
+    }
+}

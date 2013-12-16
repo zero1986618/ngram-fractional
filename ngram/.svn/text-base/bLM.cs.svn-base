@@ -1,0 +1,555 @@
+﻿using System;
+
+namespace ngram
+{
+    unsafe class bLM
+    {
+        private readonly Vocab _vocab;
+        private BinaryFile binFile;
+        private readonly int _order;
+        public bLM(Vocab vocab, BinaryFile binaryFile)
+        {
+            _vocab = vocab;
+            binFile = binaryFile;
+            _order = binaryFile.Order;
+        }
+
+        public float CalProb(int[] wid)
+        {            
+            return CalProb(0, wid.Length, wid);
+        }
+      
+        public float CalProb(int start, int end, int[] wids)
+        {
+            int order = end - start;
+            int wid = wids[start];
+            if (!_vocab.UnkIsWord)
+                wid = wids[start] - 1;
+            if (wid < 0 || wid >= binFile.Ngramcounts[0])
+                return order == 1 ? (float) Math.Log(0.0001) : CalProb(start + 1, end, wids);
+            int pos = wid;
+            if (order >= 2)
+            {
+                for (int level = 1; level <= order - 2; level++) // from bigram to n-1 gram
+                {
+                    pos = IndexSearch(((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[level - 1] + pos].Child,
+                                      ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[level - 1] + pos + 1].Child - 1,
+                                      wids[start + level],
+                                      level);
+                    if (pos < 0) // no back-off
+                        return CalProb(start + 1, end, wids);
+                }
+                float bowt = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[order - 2] + pos].Bow;
+                //check on final level here
+                pos = IndexSearch(((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[order - 2] + pos].Child,
+                                  ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[order - 2] + pos + 1].Child - 1,
+                                  wids[start + order - 1],
+                                  order - 1);
+                if (pos < 0)// || float.IsNaN(((InnerNode*) binFile.InnerPtr)[pos].Prob))
+                    return bowt + CalProb(start + 1, end, wids);
+            }
+
+            return order < binFile.Order
+                       ? ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[order - 1] + pos].Prob
+                       : ((LeafNode*) binFile.FinalPtr)[pos].Prob;
+        }
+
+        private int IndexSearch(int low, int high, int wid, int level)
+        {
+            while (low <= high)
+            {
+                int mid = (low + high) / 2;
+                int remain;
+                if (level == binFile.Order - 1)
+                    remain = ((LeafNode*)binFile.FinalPtr)[mid].Index - wid;
+                else
+                    remain = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[level] + mid].Index - wid;
+                if (remain == 0)
+                {
+                    //float prob;
+                    float prob = level == binFile.Order - 1
+                                     ? ((LeafNode*) binFile.FinalPtr)[mid].Prob
+                                     : ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[level] + mid].Prob;
+                    if (float.IsNaN(prob) || float.IsInfinity(prob))
+                        return -1;
+                    return mid;
+                }
+                if (remain > 0)
+                    high = mid - 1;
+                else
+                    low = mid + 1;
+            }
+            return -1;
+        }
+
+        bool ContainUNK(int[] context)
+        {
+            for (int i = 0; i < context.Length - 1; i++)
+                if (context[i] == _vocab.UnkIndex)
+                    return true;
+            return false;
+        }
+        static int VocabSize(Vocab vocab)
+        {
+            //return vocab.Word2Index.Keys.Count(key => !vocab.IsNonEvent(vocab.Word2Index[key]));
+            int num = 0;
+            foreach (int val in vocab.Word2Index.Values)
+            {
+                if (!vocab.IsNonEvent(val))
+                    num++;
+            }
+            return num;
+        }
+        public bool Estimate(Discount[] discounts)
+        {
+            int vocabSize = VocabSize(_vocab);//binFile.Ngramcounts[0] - 1;
+            Console.WriteLine(VocabSize(_vocab));
+            // Ensure <s> unigram exists (being a non-event, it is not inserted in distributeProb(), yet is assumed by much other software).
+
+            ((InnerNode*) binFile.InnerPtr)[_vocab.BOSIndex].Prob = float.PositiveInfinity;
+            ((InnerNode*) binFile.InnerPtr)[_vocab.UnkIndex].Prob = float.NaN;
+            for (int currOrder = 1; currOrder <= _order; currOrder++)
+            {
+                bool noDiscount = (discounts == null) || (discounts[currOrder - 1] == null) || discounts[currOrder - 1].Nodiscount();
+                if (!noDiscount && discounts[currOrder - 1] != null)
+                    discounts[currOrder - 1].PrepareCounts(binFile, currOrder, _order);
+                //TrieIterator<int, long> nGramCountsIter = new TrieIterator<int, long>(stats.Counts, i - 1);
+                BinLMIter nGramCountsIter = new BinLMIter(binFile, currOrder - 1);
+                int[] contextCount = new int[currOrder];
+                int currPos;
+                while ((currPos = nGramCountsIter.MoveNextX(ref contextCount)) >= 0)
+                {
+                    if ((currOrder > 1 && contextCount[currOrder - 2] == _vocab.EOSIndex) ||
+                        _vocab.IsNonEvent(_vocab.UnkIndex) && ContainUNK(contextCount))
+                        continue;
+                    if (currOrder == 5 && contextCount[0] == 34 && contextCount[1] == 65537 && contextCount[2] == 65538 && contextCount[3] == 92)
+                        Console.WriteLine();
+                    //if (currOrder == 4 && contextCount[0] == 1 && contextCount[1] == 8683 && contextCount[2] == 33198)
+                    //    Console.WriteLine();
+                    if (currOrder == 4 && contextCount[0] == 65537 && contextCount[1] == 65538 && contextCount[2] == 92)
+                        Console.WriteLine();
+                    if (currOrder == 4 && contextCount[0] == 9053 && contextCount[1] == 2104 && contextCount[2] == 2048)
+                        Console.WriteLine();
+                    if (currOrder == 4 && contextCount[0] == 1 && contextCount[1] == 2104 && contextCount[2] == 1006)
+                        Console.WriteLine();
+                    if (currOrder == 3 && contextCount[0] == 9053 && contextCount[1] == 2104)
+                        Console.WriteLine();
+                    if (currOrder == 3 && string.Join(" ", _vocab.GetWords(contextCount)).StartsWith("\" If"))
+                        Console.WriteLine();
+                    if (currOrder == 2 && contextCount[0] == 3)
+                        Console.WriteLine();
+                    bool interpolate = discounts != null && discounts[currOrder - 1] != null && discounts[currOrder - 1].Interpolate;
+                    int startPos = _vocab.BOSIndex;
+                    int endPos = binFile.PAccCount[1] - 1;
+                    if (currOrder > 1)
+                    {
+                        startPos = ((InnerNode*) binFile.InnerPtr)[currPos].Child;
+                        endPos = ((InnerNode*) binFile.InnerPtr)[currPos + 1].Child;
+                    }
+
+                    long totalCount = 0;
+                    long observedVocab = 0, min2Vocab = 0, min3Vocab = 0;
+                    for (int iterPos = startPos; iterPos < endPos; iterPos++)
+                    {
+                        int count;
+                        int index;
+                        if (currOrder == _order)
+                        {
+                            count =
+                                ((LeafNode*)binFile.FinalPtr)[iterPos].Count;//- binFile.PAccCount[binFile.Order - 1]
+                            index =
+                                ((LeafNode*)binFile.FinalPtr)[iterPos].Index;//- binFile.PAccCount[binFile.Order - 1]
+                        }
+                        else
+                        {
+                            index = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[currOrder - 1] + iterPos].Index;
+                            count = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[currOrder - 1] + iterPos].Count;
+                        }
+
+                        if (_vocab.IsNonEvent(index))
+                            continue;
+
+                        totalCount += count;
+                        observedVocab++;
+                        if (count >= 2)
+                            min2Vocab++;
+                        if (count >= 3)
+                            min3Vocab++;
+                    }
+                    if (totalCount == 0)
+                        continue;
+                  
+                    int[] subContext = new int[currOrder - 1];
+                    while (true)
+                    {
+                        double totalProb = 0;
+                        for (int iterPos = startPos; iterPos < endPos; iterPos++)
+                        {
+                            int count;
+                            int index;
+                            if (currOrder == _order)
+                            {
+                                count =((LeafNode*)binFile.FinalPtr)[iterPos].Count;//- binFile.PAccCount[binFile.Order - 1]
+                                index =((LeafNode*)binFile.FinalPtr)[iterPos].Index;// - binFile.PAccCount[binFile.Order - 1]
+                            }
+                            else
+                            {
+                                count =
+                                    ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[currOrder - 1] + iterPos].Count;
+                                index =
+                                    ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[currOrder - 1] + iterPos].Index;
+                            }
+                            if (currOrder > 1 && count == 0)
+                                continue;
+                            float lprob;
+                            double discount;
+                            if (_vocab.IsNonEvent(index))
+                            {
+                                if (currOrder > 1 || index == _vocab.UnkIndex)
+                                    continue;
+                                lprob = float.PositiveInfinity;
+                                discount = 1.0;
+                            }
+                            else
+                            {
+                                discount = noDiscount
+                                               ? 1.0
+                                               : discounts[currOrder - 1].discount(count, totalCount, observedVocab);
+                                double prob = discount*count/totalCount;
+                                if (interpolate)
+                                {
+                                    double lowerOrderWeight = discounts[currOrder - 1].LowerOrderWeight(totalCount,
+                                                                                                        observedVocab,
+                                                                                                        min2Vocab,
+                                                                                                        min3Vocab);
+                                    double lowerOrderProb = -1*Math.Log10(vocabSize);
+                                    if (currOrder > 1)
+                                    {
+                                        for (int j = 0; j < currOrder - 2; j++)
+                                            subContext[j] = contextCount[j + 1];
+                                        subContext[subContext.Length - 1] = index;
+                                        lowerOrderProb = CalProb(subContext);
+                                    }
+                                    prob += lowerOrderWeight*Math.Pow(10, lowerOrderProb);
+                                    if (prob > 1.0)
+                                        Console.WriteLine();
+                                }
+                                lprob = (float) Math.Log10(prob);
+                                if (discount != 0)
+                                    totalProb += prob;
+                            }
+                            if (currOrder == _order)
+                                ((LeafNode*)binFile.FinalPtr)[iterPos].Prob = discount == 0 ? float.NaN : lprob;// - binFile.PAccCount[binFile.Order - 1]
+                            else
+                                ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[currOrder - 1] + iterPos].Prob =
+                                    discount == 0 ? float.NaN : lprob;
+                        }
+                        if (!noDiscount && totalCount > 0 && observedVocab < vocabSize && totalProb > 1.0 - ProbEpsilon)
+                        {
+                            if (interpolate)
+                                interpolate = false;
+                            else
+                                totalCount += 1;
+                            continue;
+                        }
+                        break;
+                    }
+                }
+                ComputeBOWs(currOrder - 1);
+            }
+            FixupProbs();
+            return true;
+        }
+        void FixupProbs()
+        {
+            int[] levelFixs = new int[_order];
+
+            {
+                int currContextOrder = _order - 1;
+                BinLMIter binLMIter = new BinLMIter(binFile, currContextOrder);
+                int[] context = new int[currContextOrder + 1];
+                int currPos;
+                while ((currPos = binLMIter.MoveNextX(ref context)) >= 0)
+                {
+                    bool validContext = false;
+                    int startPos = ((InnerNode*) binFile.InnerPtr)[currPos].Child;
+                    int endPos = ((InnerNode*) binFile.InnerPtr)[currPos + 1].Child;
+                    if (context[0] == 2104 && context[1] == 1006 && context[2] == 67764)
+                        Console.WriteLine();
+                    for (int iterPos = startPos; iterPos < endPos; iterPos++)
+                    {
+                        float prob = currContextOrder == _order - 1
+                                         ? ((LeafNode*) binFile.FinalPtr)[iterPos].Prob
+                                         : ((InnerNode*) binFile.InnerPtr)[
+                                             binFile.PAccCount[currContextOrder] + iterPos].Prob;
+                        if (!float.IsNaN(prob))
+                        {
+                            validContext = true;
+                            break;
+                        }
+                    }
+                    if (!validContext)
+                        continue;
+                    for (int subContextOrder = 0; subContextOrder < currContextOrder; subContextOrder++)
+                    {
+                        int[] subcontext = new int[currContextOrder - subContextOrder];
+                        for (int k = 0; k < subcontext.Length; k++)
+                            subcontext[k] = context[k + subContextOrder];
+                        if (string.Join(" ", _vocab.GetWords(subcontext)) == "\" If Chen")
+                            //"  \"most-favored-nation \" status on
+                        {
+                            Console.WriteLine();
+                        }
+                        int index = binFile.FindPrefixNode(subcontext, binFile.Order);
+                        if (index != -1 && !float.IsNaN(((InnerNode*) binFile.InnerPtr)[index].Prob))
+                            //// && !float.IsInfinity(((InnerNode*) binFile.InnerPtr)[index].Prob)
+                            continue;
+                        ((InnerNode*) binFile.InnerPtr)[index].Prob = float.NegativeInfinity;
+                        levelFixs[currContextOrder - subContextOrder]++;
+                    }
+                }
+            }
+            /*
+            for (int currContextOrder = 1; currContextOrder < _order; currContextOrder++)
+            {
+                BinLMIter binLMIter = new BinLMIter(binFile, currContextOrder);
+                int[] context = new int[currContextOrder + 1];
+                int currPos;
+                while ((currPos = binLMIter.MoveNextX(ref context)) >= 0)
+                {
+                    bool validContext = false;
+                    int startPos = 0;
+                    int endPos = binFile.PAccCount[1] - 1;
+                    if (currContextOrder > 1)
+                    {
+                        startPos = ((InnerNode*)binFile.InnerPtr)[currPos].Child;
+                        endPos = ((InnerNode*)binFile.InnerPtr)[currPos + 1].Child;
+                    }
+                    if (currContextOrder == 3 && context[0] == 2104 && context[1] == 1006 && context[2] == 67764)
+                        Console.WriteLine();
+                    for (int iterPos = startPos; iterPos < endPos; iterPos++)
+                    {
+                        float prob = currContextOrder == _order - 1
+                                         ? ((LeafNode*)binFile.FinalPtr)[iterPos].Prob
+                                         : ((InnerNode*)binFile.InnerPtr)[
+                                             binFile.PAccCount[currContextOrder] + iterPos].Prob;
+                        if (!float.IsNaN(prob))
+                        {
+                            validContext = true;
+                            break;
+                        }
+                    }
+                    if (!validContext)
+                        continue;
+                    for (int subContextOrder = 0; subContextOrder < currContextOrder; subContextOrder++)
+                    {
+                        int[] subcontext = new int[currContextOrder - subContextOrder];
+                        for (int k = 0; k < subcontext.Length; k++)
+                            subcontext[k] = context[k + subContextOrder];
+                        if (string.Join(" ", _vocab.GetWords(subcontext)) == "<s> \" At 0019")//"  \"most-favored-nation \" status on
+                        {
+                            Console.WriteLine();
+                        }
+                        int index = binFile.FindPrefixNode(subcontext, binFile.Order);
+                        if (index != -1 && !float.IsNaN(((InnerNode*)binFile.InnerPtr)[index].Prob))
+                            //// && !float.IsInfinity(((InnerNode*) binFile.InnerPtr)[index].Prob)
+                            break;
+                        ((InnerNode*)binFile.InnerPtr)[index].Prob = float.NegativeInfinity;
+                        levelFixs[currContextOrder - subContextOrder]++;
+                        
+                        //int[] sscontext = new int[subcontext.Length - 1];
+                        //for (int k = 0; k < sscontext.Length; k++)
+                        //    sscontext[k] = subcontext[k + 1];
+                        //((InnerNode*) binFile.InnerPtr)[index].Prob = CalProb(sscontext);
+                    }
+                }
+            }*/
+            for (int currContextOrder = 1; currContextOrder < _order; currContextOrder++)
+            {
+                BinLMIter binLMIter = new BinLMIter(binFile, currContextOrder);
+                int[] context = new int[currContextOrder + 1];
+                int currPos;
+                while ((currPos = binLMIter.MoveNextX(ref context)) >= 0)
+                {
+                    InnerNode innerNode = ((InnerNode*)binFile.InnerPtr)[currPos];
+                    if (currContextOrder == 3 && context[2] == 136 && context[0] == 2104 && context[1] == 2048)
+                        Console.WriteLine();
+                    if (currContextOrder == 4 && context[0] == 2104 && context[1] == 1006 && context[2] == 67764 && context[3] == 5106)
+                        Console.WriteLine();
+                    if (currContextOrder == 3 && context[0] == 2104 && context[1] == 1006 && context[2] == 67764)
+                        Console.WriteLine();
+
+                    if (currContextOrder == 3 && string.Join(" ", _vocab.GetWords(context)).StartsWith("\" If Chen"))
+                    //"  \"most-favored-nation \" status on
+                    {
+                        Console.WriteLine();
+                    }
+                    if (float.IsNegativeInfinity(innerNode.Prob))
+                    {
+                        int[] xsscontext = new int[currContextOrder];
+                        for (int k = 0; k < xsscontext.Length; k++)
+                            xsscontext[k] = context[k];
+                        //float x = CalProb(xsscontext);
+                        /*
+                        int[] sscontext = new int[currContextOrder - 1];
+                        for (int k = 0; k < sscontext.Length; k++)
+                            sscontext[k] = context[k + 1];*/
+                        ((InnerNode*) binFile.InnerPtr)[currPos].Prob = CalProb(xsscontext);
+                    }
+                }
+            }
+        }
+
+        private void ComputeBOWs(int order)
+        {
+            int[] context = new int[order + 1];
+            BinLMIter binLMIter = new BinLMIter(binFile, order);
+            int currPos;
+            while ((currPos = (binLMIter.MoveNextX(ref context))) >= 0) //absolute offset
+            {
+                if (order == 2 && context[0] == 102 && context[1] == 96645)
+                    Console.WriteLine();
+                if (order == 2 && string.Join(" ", _vocab.GetWords(context)).StartsWith("At 0200"))
+                    Console.WriteLine();
+                double numerator = 0, denominator = 0;
+                if (ComputeBOW(currPos, context, order, ref numerator, ref denominator))
+                {
+                    if (order == 0)
+                        DistributeProb(numerator);
+                    else if (numerator == 0 && denominator == 0)
+                        ((InnerNode*)binFile.InnerPtr)[currPos].Bow = (float)LogPOne; //+ binFile.PAccCount[order]
+                    else
+                        ((InnerNode*)binFile.InnerPtr)[currPos].Bow =
+                            (float)(Math.Log10(numerator) - Math.Log10(denominator)); //+ binFile.PAccCount[order]
+                }
+                else
+                    ((InnerNode*) binFile.InnerPtr)[currPos].Bow = float.PositiveInfinity; // + binFile.PAccCount[order]
+            }
+            double x = Math.Log(1);
+        }
+
+        private bool ComputeBOW(int pos, int[] context, int clen, ref double numerator, ref double denominator)
+        {
+            numerator = 1;
+            denominator = 1;
+            int startPos = _vocab.BOSIndex;
+            int endPos = binFile.PAccCount[1] - 1;
+            if (clen > 0)
+            {
+                startPos = ((InnerNode*)binFile.InnerPtr)[pos].Child;// error here, relative//binFile.PAccCount[clen - 1] +
+                endPos = ((InnerNode*)binFile.InnerPtr)[pos + 1].Child;//or absolute position//binFile.PAccCount[clen - 1] + 
+            }
+
+            int[] fcontext = new int[clen];
+            for (int currPos = startPos; currPos < endPos; currPos++)//relative offsest
+            {
+                float prob;
+                int index;
+                if (clen == 4)
+                {
+                    prob = ((LeafNode*) binFile.FinalPtr)[currPos].Prob;
+                    index = ((LeafNode*) binFile.FinalPtr)[currPos].Index;
+                }
+                else
+                {
+                    prob = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[clen] + currPos].Prob;
+                    index = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[clen] + currPos].Index;
+                }
+                if (!float.IsNaN(prob))
+                {
+                    if (!float.IsInfinity(prob))
+                        numerator -= Math.Pow(10, prob);
+                    if (clen > 0)
+                    {
+                        fcontext[clen - 1] = index;
+                        for (int j = 0; j < clen - 1; j++)
+                            fcontext[j] = context[j + 1];
+                        denominator -= Math.Pow(10, CalProb(fcontext));
+                    }
+                }
+            }
+
+            if (numerator < 0 && numerator > -1 * ProbEpsilon)
+                numerator = 0;
+            if (denominator < 0 && denominator > -1 * ProbEpsilon)
+                denominator = 0;
+            if (denominator == 0 && numerator > ProbEpsilon)
+            {
+                double scale = -1*Math.Log10(1 - numerator);
+                for (int currPos = startPos; currPos < endPos; currPos++)
+                {
+                    if (clen < 4)
+                    {
+                        float prob = ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[clen] + currPos].Prob;
+                        if (!float.IsInfinity(prob) && !float.IsNaN(prob))
+                            ((InnerNode*) binFile.InnerPtr)[binFile.PAccCount[clen] + currPos].Prob += (float) scale;
+                    }
+                    else
+                    {
+                        float prob = ((LeafNode*) binFile.FinalPtr)[currPos].Prob;
+                        if (!float.IsInfinity(prob) && !float.IsNaN(prob))
+                            ((LeafNode*) binFile.FinalPtr)[currPos].Prob += (float) scale;
+                    }
+                }
+                numerator = 0;
+                return true;
+            }
+            if (numerator < 0)
+                return false;
+            if (denominator < 0)
+            {
+                if (numerator > ProbEpsilon)
+                    return false;
+                numerator = 0;
+                denominator = 0;
+                return true;
+            }
+            return true;
+        }
+        const double LogPOne = 0.0;// log(1)
+        const double ProbEpsilon = 3e-06;
+        //re-compute backoff weight for all contexts of a given order    
+        void DistributeProb(double mass)
+        {
+            int numWords = 0;
+            int numZeroProbs = 0;
+            int startPos = 0;
+            int endPos = binFile.PAccCount[1] - 1;
+            for (int currPos = startPos; currPos < endPos; currPos++)
+            {
+                InnerNode innerNode = ((InnerNode*)binFile.InnerPtr)[currPos];
+                if (!_vocab.IsNonEvent(innerNode.Index))
+                {
+                    numWords++;
+                    if (float.IsInfinity(innerNode.Prob) || float.IsNaN(innerNode.Prob))
+                        numZeroProbs++;
+                }
+            }
+            double add1 = mass / numZeroProbs;
+            double add2 = mass / numWords;
+
+            for (int currPos = startPos; currPos < endPos; currPos++)
+            {
+                InnerNode innerNode = ((InnerNode*)binFile.InnerPtr)[currPos];
+                if (innerNode.Index == 0)
+                    Console.WriteLine();
+                if (!_vocab.IsNonEvent(innerNode.Index))
+                {
+                    if (numZeroProbs > 0)
+                    {
+                        if (float.IsInfinity(innerNode.Prob) || float.IsNaN(innerNode.Prob))
+                            ((InnerNode*) binFile.InnerPtr)[currPos].Prob = (float) Math.Log10(add1);
+                        //if (float.IsNaN(innerNode.Prob))
+                        //    ((InnerNode*)binFile.InnerPtr)[currPos].Prob = 0;
+                    }
+                    else
+                    {
+                        if (float.IsNaN(innerNode.Prob))//float.IsInfinity(innerNode.Prob)
+                            ((InnerNode*)binFile.InnerPtr)[currPos].Prob = 0;
+                        ((InnerNode*)binFile.InnerPtr)[currPos].Prob = (float)Math.Log10(Math.Pow(10, innerNode.Prob) + add2);
+                    }
+                }
+            }
+        }
+    }
+}

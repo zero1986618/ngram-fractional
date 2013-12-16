@@ -1,0 +1,26 @@
+﻿using System;
+using System.Text;
+
+namespace ngram
+{
+    class Util
+    {
+        private static int _strDup;
+        public static string GenRandStr(int strlen)
+        {
+            StringBuilder sb = new StringBuilder();
+            long num2 = DateTime.Now.Ticks + _strDup;
+            _strDup++;
+            Random random = new Random(((int)(((ulong)num2) & 0xffffffffL)) | ((int)(num2 >> _strDup)));
+            for (int i = 0; i < strlen; i++)
+            {
+                int num = random.Next();
+                if ((num % 2) == 0)
+                    sb.Append((char)(0x30 + ((ushort)(num % 10))));
+                else
+                    sb.Append((char)(0x41 + ((ushort)(num % 0x1a))));
+            }
+            return sb.ToString();
+        }
+    }
+}

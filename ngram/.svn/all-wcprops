@@ -1,0 +1,119 @@
+K 25
+svn:wc:ra_dav:version-url
+V 43
+/svn/zhaoyg_suffixLM/!svn/ver/3/ngram/ngram
+END
+Util.cs
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/Util.cs
+END
+Test.cs
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/svn/zhaoyg_suffixLM/!svn/ver/6/ngram/ngram/Test.cs
+END
+Useless.cs
+K 25
+svn:wc:ra_dav:version-url
+V 54
+/svn/zhaoyg_suffixLM/!svn/ver/4/ngram/ngram/Useless.cs
+END
+CountsBinMaker.cs
+K 25
+svn:wc:ra_dav:version-url
+V 61
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/CountsBinMaker.cs
+END
+BinaryFile.cs
+K 25
+svn:wc:ra_dav:version-url
+V 57
+/svn/zhaoyg_suffixLM/!svn/ver/6/ngram/ngram/BinaryFile.cs
+END
+BinLMIter.cs
+K 25
+svn:wc:ra_dav:version-url
+V 56
+/svn/zhaoyg_suffixLM/!svn/ver/7/ngram/ngram/BinLMIter.cs
+END
+Discount.cs
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/Discount.cs
+END
+BinLMx.cs
+K 25
+svn:wc:ra_dav:version-url
+V 53
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/BinLMx.cs
+END
+Vocab.cs
+K 25
+svn:wc:ra_dav:version-url
+V 52
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/Vocab.cs
+END
+RecurseGenBin.cs
+K 25
+svn:wc:ra_dav:version-url
+V 60
+/svn/zhaoyg_suffixLM/!svn/ver/6/ngram/ngram/RecurseGenBin.cs
+END
+LMConfig.cs
+K 25
+svn:wc:ra_dav:version-url
+V 55
+/svn/zhaoyg_suffixLM/!svn/ver/3/ngram/ngram/LMConfig.cs
+END
+ngram.csproj
+K 25
+svn:wc:ra_dav:version-url
+V 56
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/ngram.csproj
+END
+NGramCounts.cs
+K 25
+svn:wc:ra_dav:version-url
+V 58
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/NGramCounts.cs
+END
+BinLM.cs
+K 25
+svn:wc:ra_dav:version-url
+V 52
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/BinLM.cs
+END
+TextStats.cs
+K 25
+svn:wc:ra_dav:version-url
+V 56
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/TextStats.cs
+END
+Trie.cs
+K 25
+svn:wc:ra_dav:version-url
+V 51
+/svn/zhaoyg_suffixLM/!svn/ver/3/ngram/ngram/Trie.cs
+END
+Program.cs
+K 25
+svn:wc:ra_dav:version-url
+V 54
+/svn/zhaoyg_suffixLM/!svn/ver/6/ngram/ngram/Program.cs
+END
+LM.cs
+K 25
+svn:wc:ra_dav:version-url
+V 49
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/LM.cs
+END
+bLM.cs
+K 25
+svn:wc:ra_dav:version-url
+V 50
+/svn/zhaoyg_suffixLM/!svn/ver/5/ngram/ngram/bLM.cs
+END

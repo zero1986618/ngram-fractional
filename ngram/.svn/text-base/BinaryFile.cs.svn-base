@@ -1,0 +1,276 @@
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.MemoryMappedFiles;
+
+namespace ngram
+{
+    internal enum Mode
+    {
+        BinCounts,
+        BinProb
+    }
+    unsafe class BinaryFile
+    {
+        public int[] Ngramcounts;
+        private LMHead _header;
+        public readonly List<int> PAccCount = new List<int>();
+        private readonly MemoryMappedFile _mmf;//InnerNode(LeafNode):[wid-int prob-float (next-int bowt-float)]
+        private readonly byte* _baseptr = (byte*)(new IntPtr(-1));
+        private readonly byte* _innerptr;
+        private readonly byte* _finalptr;
+        private readonly long _innerNodeCount;
+        private readonly string _lmbin;
+        public Vocab vocab;
+        public byte* InnerPtr
+        {
+            get { return _innerptr; }
+        }
+        public byte* FinalPtr
+        {
+            get { return _finalptr; }
+        }
+        public int Order
+        {
+            get { return _header.Order; }
+        }
+        public BinaryFile(string file, int[] ngrams, Mode mode, int unk = int.MaxValue)
+        {
+            _lmbin = file;
+            Ngramcounts = ngrams;
+            _header.Order = Ngramcounts.Length;
+            _header.Signature = 0x12112112;
+
+            int innerNodeSize = mode == Mode.BinCounts ? sizeof (InnerNode) : sizeof (InnerProbNode);
+            int leafNodeSize = mode == Mode.BinCounts ? sizeof (LeafNode) : sizeof (LeafProbNode);
+
+            List<long> pOffset = new List<long>
+                                     {
+                                         sizeof (LMHead) + _header.Order*sizeof (int) + _header.Order*sizeof (int)
+                                     };
+            for (int i = 1; i < _header.Order; i++)
+                pOffset.Add((pOffset[i - 1] + (Ngramcounts[i - 1] + 1)*innerNodeSize));
+            int innerCount = 0;
+            for (int i = 0; i < _header.Order - 1; i++)
+                innerCount += Ngramcounts[i];
+            _innerNodeCount = innerCount + Ngramcounts.Length - 1;
+            int finalNodeCount = Ngramcounts[Ngramcounts.Length - 1] + 1;
+            PAccCount.Add(0);
+            for (int i = 1; i < _header.Order; i++)
+                PAccCount.Add(PAccCount[i - 1] + Ngramcounts[i - 1] + 1);
+
+            long lmsize = sizeof (LMHead) + PAccCount.Count*sizeof (int) + pOffset.Count*sizeof (long) +
+                           _innerNodeCount*innerNodeSize + (long) finalNodeCount*leafNodeSize;
+            
+            long innerNodeStartPos = sizeof (LMHead) + PAccCount.Count*sizeof (int) + pOffset.Count*sizeof (long);
+            long finalNodeStartPos = innerNodeStartPos + _innerNodeCount*innerNodeSize;
+            _mmf = MemoryMappedFile.CreateFromFile(_lmbin, FileMode.Create, Util.GenRandStr(6), lmsize);
+            MemoryMappedViewAccessor mmva = _mmf.CreateViewAccessor();
+            mmva.SafeMemoryMappedViewHandle.AcquirePointer(ref _baseptr);
+            ((uint*) _baseptr)[0] = _header.Signature;
+            ((int*) _baseptr)[1] = _header.Order;
+            ((int*) _baseptr)[2] = unk;
+            _innerptr = _baseptr + innerNodeStartPos;
+            _finalptr = _baseptr + finalNodeStartPos;
+            for (int i = 0; i < _header.Order; i++)
+                ((int*) _baseptr)[3 + i] = Ngramcounts[i];
+            for (int i = 0; i < _header.Order; i++)
+                ((long*) _baseptr)[3 + _header.Order + i] = pOffset[i];
+        }
+
+        public BinaryFile(string file, int[] ngrams, int unk = int.MaxValue)
+        {
+            _lmbin = file;
+            Ngramcounts = ngrams;
+            _header.Order = Ngramcounts.Length;
+            _header.Signature = 0x12112112;
+            List<long> pOffset = new List<long>
+                                     {
+                                         sizeof (LMHead) + _header.Order*sizeof (int) + _header.Order*sizeof (int)
+                                     };
+            for (int i = 1; i < _header.Order; i++)
+                pOffset.Add(pOffset[i - 1] + (Ngramcounts[i - 1] + 1)*sizeof (InnerNode));
+            int innerCount = 0;
+            for (int i = 0; i < _header.Order - 1; i++)
+                innerCount += Ngramcounts[i];
+            _innerNodeCount = innerCount + Ngramcounts.Length - 1;
+            long finalNodeCount = Ngramcounts[Ngramcounts.Length - 1] + 1;
+            PAccCount.Add(0);
+            for (int i = 1; i < _header.Order; i++)
+                PAccCount.Add(PAccCount[i - 1] + Ngramcounts[i - 1] + 1);
+
+            long lmsize = sizeof (LMHead) + PAccCount.Count*sizeof (int) + pOffset.Count*sizeof (long) +
+                          _innerNodeCount*sizeof (InnerNode) + finalNodeCount*sizeof (LeafNode);
+            long innerNodeStartPos = sizeof (LMHead) + PAccCount.Count*sizeof (int) + pOffset.Count*sizeof (long);
+            long finalNodeStartPos = innerNodeStartPos + _innerNodeCount * sizeof(InnerNode);
+            _mmf = MemoryMappedFile.CreateFromFile(_lmbin, FileMode.Create, Util.GenRandStr(6), lmsize);
+            MemoryMappedViewAccessor mmva = _mmf.CreateViewAccessor();
+            mmva.SafeMemoryMappedViewHandle.AcquirePointer(ref _baseptr);
+            ((uint*)_baseptr)[0] = _header.Signature;
+            ((int*)_baseptr)[1] = _header.Order;
+            ((int*)_baseptr)[2] = unk;
+            _innerptr = _baseptr + innerNodeStartPos;
+            _finalptr = _baseptr + finalNodeStartPos;
+            for (int i = 0; i < _header.Order; i++)
+                ((int*)_baseptr)[3 + i] = Ngramcounts[i];
+            for (int i = 0; i < _header.Order; i++)
+                ((long*) _baseptr)[3 + _header.Order + i] = pOffset[i];
+        }
+
+        public BinaryFile(string file, Mode mode = Mode.BinCounts)
+        {
+            _mmf = MemoryMappedFile.CreateFromFile(file, FileMode.Open, Util.GenRandStr(6));
+            MemoryMappedViewAccessor mmva = _mmf.CreateViewAccessor();
+            int innerNodeSize = mode == Mode.BinCounts ? sizeof (InnerNode) : sizeof (InnerProbNode);
+            mmva.SafeMemoryMappedViewHandle.AcquirePointer(ref _baseptr);
+            _header.Order = ((int*) _baseptr)[1];
+            int* pOffset = (int*) (_baseptr + 3*sizeof (int));
+            Ngramcounts = new int[_header.Order];
+            for (int i = 0; i < _header.Order; i++)
+                Ngramcounts[i] = pOffset[i];
+
+            int innerCount = 0;
+            for (int i = 0; i < _header.Order - 1; i++)
+                innerCount += Ngramcounts[i];
+            _innerNodeCount = innerCount + Ngramcounts.Length - 1;
+            PAccCount.Add(0);
+            for (int i = 1; i < _header.Order; i++)
+                PAccCount.Add(PAccCount[i - 1] + Ngramcounts[i - 1] + 1);
+            long innerNodeStartPos = sizeof (LMHead) + PAccCount.Count*sizeof (int) + _header.Order*sizeof (long);
+            long finalNodeStartPos = innerNodeStartPos + _innerNodeCount*innerNodeSize;
+            _innerptr = _baseptr + innerNodeStartPos;
+            _finalptr = _baseptr + finalNodeStartPos;
+        }
+
+        public int NGramCounts(int level)
+        {
+            BinLMIter binLMIter = new BinLMIter(this, level);
+            int[] keys = new int[level + 1];
+            int currPos;
+            int validGrams = 0;
+            while ((currPos = binLMIter.MoveNextX(ref keys)) >= 0)
+            {
+                if (level == Order)
+                {
+                    LeafNode leafNode =
+                        ((LeafNode*) FinalPtr)[currPos - PAccCount[level - 1]];
+                    if (float.IsNaN(leafNode.Prob))
+                        continue;
+                    validGrams++;
+                }
+                else
+                {
+                    InnerNode innerNode = ((InnerNode*) InnerPtr)[currPos];
+                    if (float.IsNaN(innerNode.Prob))
+                        continue;
+                    validGrams++;
+                }
+            }
+            return validGrams;
+        }
+        
+        public void DumpBinLM(string binfile)
+        {
+            int[] counts = new int[Order];
+            for (int level = 1; level <= Order; level++)
+                counts[level - 1] = NGramCounts(level);
+            int[] accCounts = new int[Order + 1];
+            for (int i = 0; i < Order - 1; i++)
+                accCounts[i + 1] = accCounts[i] + counts[i] + 1;
+            BinaryFile lmfile = new BinaryFile(binfile, counts, Mode.BinProb);
+            for (int level = 1; level <= Order; level++)
+            {
+                int currAccPos = 0;
+                BinLMIter binLMIter = new BinLMIter(this, level);
+                int[] keys = new int[level + 1];
+                int currCountsPos;
+                int currProbPos = 0;
+                if (level < Order)
+                    currProbPos = accCounts[level - 1];
+                while ((currCountsPos = binLMIter.MoveNextX(ref keys)) >= 0)
+                {
+                    if (level == Order)
+                    {
+                        LeafNode leafNode =
+                            ((LeafNode*)FinalPtr)[currCountsPos - PAccCount[level - 1]];
+                        if (float.IsNaN(leafNode.Prob))
+                            continue;
+                        ((LeafProbNode*) lmfile.FinalPtr)[currProbPos].Prob = leafNode.Prob;
+                        ((LeafProbNode*) lmfile.FinalPtr)[currProbPos].Index = leafNode.Index;
+                        currProbPos++;
+                    }
+                    else
+                    {
+                        InnerNode innerNode = ((InnerNode*)InnerPtr)[currCountsPos];
+                        if (float.IsNaN(innerNode.Prob))
+                            continue;
+                        if (keys[keys.Length - 2] != innerNode.Index)
+                            Console.WriteLine();
+                        ((InnerProbNode*) lmfile.InnerPtr)[currProbPos].Prob = innerNode.Prob;
+                        ((InnerProbNode*) lmfile.InnerPtr)[currProbPos].Bow = innerNode.Bow;
+                        ((InnerProbNode*) lmfile.InnerPtr)[currProbPos].Index = innerNode.Index;
+                        ((InnerProbNode*) lmfile.InnerPtr)[currProbPos].Child = currAccPos;               
+                        for (int nextLevelPos = ((InnerNode*)InnerPtr)[currCountsPos].Child; 
+                            nextLevelPos < ((InnerNode*)InnerPtr)[currCountsPos + 1].Child; nextLevelPos++)
+                        {
+                            if (level == Order - 1)
+                            {
+                                float prob = ((LeafNode*) FinalPtr)[nextLevelPos].Prob;
+                                if (!float.IsNaN(prob))
+                                    currAccPos++;
+                            }
+                            else
+                            {
+                                float prob = ((InnerNode*)InnerPtr)[nextLevelPos + PAccCount[level]].Prob;
+                                if (!float.IsNaN(prob))
+                                    currAccPos++;
+                            }
+                        }
+                        currProbPos++;
+                    }
+                }
+            }
+        }
+        //here we need to modify the code to accelerate the transformation speed
+        public int FindPrefixNode(int[] wids,int order)
+        {
+            int level = wids.Length;
+            int m = 0;
+            int low = 0, high = PAccCount[1] - 1;
+            int baseAddr = 0;
+            for (int i = 0; i < level; i++)//for each level
+            {
+                baseAddr = PAccCount[i];
+                bool flag = false;
+                while (low <= high)
+                {
+                    m = (low + high)/2;
+                    if (m < 0)
+                        return -1;
+                    int ret;
+                    if (i == order - 1)
+                        ret = ((LeafNode*) _finalptr)[m].Index - wids[i];
+                    else
+                        ret = ((InnerNode*) _innerptr)[baseAddr + m].Index - wids[i];
+                    if (ret == 0)
+                    {
+                        flag = true;
+                        break;
+                    }
+                    if (ret > 0)
+                        high = m - 1;
+                    else
+                        low = m + 1;
+                }
+                if (!flag)
+                    return -1;
+                if (i < level && i < order - 2)
+                {
+                    low = ((InnerNode*) _innerptr)[baseAddr + m].Child;
+                    high = ((InnerNode*) _innerptr)[baseAddr + m + 1].Child - 1;
+                }
+            }
+            return baseAddr + m;
+        }
+    }
+}

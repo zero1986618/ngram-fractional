@@ -1,0 +1,558 @@
+﻿using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.IO;
+using System.IO.MemoryMappedFiles;
+
+namespace ngram
+{
+    public struct LMHead
+    {
+        public UInt32 Signature;
+        public Int32 Order;
+        public Int32 UnkID;
+    }
+    struct InnerProbNode
+    {
+        public int Index;
+        public float Prob;
+        public int Child;
+        public float Bow;
+    }
+
+    struct LeafProbNode
+    {
+        public int Index;
+        public float Prob;       
+    }
+
+    struct InnerNode
+    {
+        public int Index;
+        public int Count;
+        public float Prob;
+        public float Bow;
+        public int Child;
+    }
+
+    struct LeafNode
+    {
+        public float Prob;
+        public int Index;
+        public int Count;
+    }
+
+    unsafe class BinLM
+    {
+        public BinLM(string text, int _order)
+        {
+            _text = text;
+            order = _order;
+        }
+        private BinaryReader[] _binaryReaders;
+        private int order;
+        public int[] Ngramcounts;
+        private readonly string _text;
+        private LMHead _header;
+        public readonly List<Int32> _pAccCount = new List<int>();
+        private MemoryMappedFile _mmf;//InnerNode(LeafNode):[wid-int prob-float (next-int bowt-float)]        
+        private byte* _baseptr = (byte*)(new IntPtr(-1));
+        public byte* _innerptr;
+        public byte* _finalptr;
+        private string _lmbin;
+
+        private int[] _prevFillLocation;
+        private int[] _currFillLocation;
+        private Vocab _vocab = new Vocab();
+        private TextStats textStats;
+        public byte* InnerPtr
+        {
+            get { return _innerptr; }
+        }
+        public byte* FinalPtr
+        {
+            get { return _finalptr; }
+        }
+        public void GetpOffset()
+        {
+            _header.Order = Ngramcounts.Length;
+            _header.Signature = 0x12112112;
+
+            List<uint> pOffset = new List<uint>
+                                      {
+                                          (uint)
+                                          (sizeof (LMHead) + _header.Order*sizeof (int) + _header.Order*sizeof (int))
+                                      };
+            for (int i = 1; i < _header.Order; i++)
+                pOffset.Add((uint)(pOffset[i - 1] + (Ngramcounts[i - 1] + 1) * sizeof(InnerNode)));
+            int innerCount = 0;
+            for (int i = 0; i < _header.Order - 1; i++)
+                innerCount += Ngramcounts[i];
+            int innerNodeCount = innerCount + Ngramcounts.Length - 1;
+            int finalNodeCount = Ngramcounts[Ngramcounts.Length - 1] + 1;
+            _pAccCount.Add(0);
+            for (int i = 1; i < _header.Order; i++)
+                _pAccCount.Add(_pAccCount[i - 1] + Ngramcounts[i - 1] + 1);
+
+            long lmsize = sizeof(LMHead) + _pAccCount.Count * sizeof(int) + pOffset.Count * sizeof(int) +
+                          (long)innerNodeCount * sizeof(InnerNode) + (long)finalNodeCount * sizeof(LeafNode);
+            long innerNodeStartPos = sizeof(LMHead) + _pAccCount.Count * sizeof(int) + pOffset.Count * sizeof(int);
+            long finalNodeStartPos = innerNodeStartPos + innerNodeCount * sizeof(InnerNode);
+            _mmf = MemoryMappedFile.CreateFromFile(_lmbin, FileMode.Create, "mmflm", lmsize);
+            MemoryMappedViewAccessor mmva = _mmf.CreateViewAccessor();
+            mmva.SafeMemoryMappedViewHandle.AcquirePointer(ref _baseptr);
+            ((uint*)_baseptr)[0] = _header.Signature;
+            ((int*)_baseptr)[1] = _header.Order;
+            ((int*)_baseptr)[2] = _vocab.GetIndex("<unk>");
+            _innerptr = _baseptr + innerNodeStartPos;
+            _finalptr = _baseptr + finalNodeStartPos;
+            for (int i = 0; i < _header.Order; i++)
+                ((int*)_baseptr)[3 + i] = Ngramcounts[i];
+            for (int i = 0; i < _header.Order; i++)
+                ((uint*)_baseptr)[3 + _header.Order + i] = pOffset[i];
+        }
+
+        void ReadBin()
+        {
+            _binaryReaders = new BinaryReader[order];
+            for (int i = 0; i < order; i++)
+                _binaryReaders[i] = new BinaryReader(new FileStream("index" + (i + 1) + ".bin", FileMode.Open));
+        }
+
+        void ReadUtilMatch(int level, int[] ngrams)
+        {
+            if (level <= 0)
+                return;
+            for (int sublevel = level - 1; sublevel >= 0; sublevel--)
+            {
+                int[] ngramsminus = new int[sublevel + 2];
+                while (true)
+                {
+                    for (int i = 0; i < ngramsminus.Length; i++)
+                        ngramsminus[i] = _binaryReaders[sublevel].ReadInt32();
+                    int gramMatchIndex = 0;
+                    for (int i = 0; i < ngramsminus.Length - 1; i++)
+                        if (ngrams[i] == ngramsminus[i])
+                            gramMatchIndex = i + 1;
+                        else
+                        {
+                            if (ngramsminus[i] > ngrams[i])
+                                gramMatchIndex = -1;
+                            break;
+                        }
+                    if (gramMatchIndex == -1)
+                    {
+                        _prevFillLocation[sublevel + 1] = _currFillLocation[sublevel + 1];
+                        _binaryReaders[sublevel].BaseStream.Seek(-1 * ngramsminus.Length * sizeof(int), SeekOrigin.Current);
+                        break;
+                    }
+                    InnerNode leafNode;
+                    leafNode.Prob = 0;
+                    leafNode.Bow = 0;
+                    leafNode.Count = ngramsminus[ngramsminus.Length - 1];
+                    leafNode.Index = ngramsminus[ngramsminus.Length - 2];
+                    leafNode.Child = _prevFillLocation[sublevel + 1];
+                    ((InnerNode*)_innerptr)[_pAccCount[sublevel] + _currFillLocation[sublevel]] = leafNode;
+                    _currFillLocation[sublevel]++;
+                    if (gramMatchIndex == ngramsminus.Length - 1)
+                    {
+                        _prevFillLocation[sublevel + 1] = _currFillLocation[sublevel + 1];
+                        break;
+                    }
+                    ReadUtilMatch(sublevel, ngramsminus);
+                }
+            }
+        }
+
+        public void GenBin(string lmbin)
+        {
+            _lmbin = lmbin;
+            Ngramcounts = new int[order];
+            _currFillLocation = new int[order + 1]; //current filled location
+            _prevFillLocation = new int[order + 1]; //current filled location
+            ReadBin();
+            for (int i = 0; i < order; i++)
+                Ngramcounts[i] = (int)(_binaryReaders[i].BaseStream.Length / (sizeof(int) * (i + 2)));
+            GetpOffset();
+            int[] currLeafNGrams = new int[order + 1]; //ngrams read in, ngram[order] + count[1]
+            int[] prevLeafNGrams = new int[order + 1]; //ngrams read in, ngram[order] + count[1]
+            bool initial = true;
+            bool finalAppend = true;
+            while (finalAppend)
+            {
+                if (_binaryReaders[order - 1].BaseStream.Position >= _binaryReaders[order - 1].BaseStream.Length)
+                {
+                    finalAppend = false;
+                    for (int i = 0; i < order; i++)
+                        currLeafNGrams[i] = int.MaxValue;
+                }
+                else
+                {
+                    for (int i = 0; i < order + 1; i++)
+                        currLeafNGrams[i] = _binaryReaders[order - 1].ReadInt32();
+                }
+
+                if (initial)
+                {
+                    for (int i = 0; i < order + 1; i++)
+                        prevLeafNGrams[i] = currLeafNGrams[i];
+                    initial = false;
+                }
+                else
+                {
+                    int gramMatchIndex = 0;
+                    for (int i = 0; i < order; i++)
+                        if (currLeafNGrams[i] == prevLeafNGrams[i])
+                            gramMatchIndex = i + 1;
+                        else
+                            break;
+                    if (gramMatchIndex == order)
+                        Console.Error.WriteLine("error! duplicated ngrams");
+                    else
+                    {
+                        //(gramMatchIndex == order - 1)
+                        LeafNode leafNode;
+                        leafNode.Prob = 0;
+                        leafNode.Count = prevLeafNGrams[prevLeafNGrams.Length - 1];
+                        leafNode.Index = prevLeafNGrams[prevLeafNGrams.Length - 2];
+                        ((LeafNode*)_finalptr)[_currFillLocation[order - 1]] = leafNode;
+                        _currFillLocation[order - 1]++;
+                        for (int i = order - 2; i >= gramMatchIndex; i--)
+                        {
+                            while (true)
+                            {
+                                InnerNode innerNode;
+                                innerNode.Prob = 0;
+                                innerNode.Bow = 0;
+                                int[] grams = new int[i + 2];
+                                if (_binaryReaders[i].BaseStream.Position < _binaryReaders[i].BaseStream.Length)
+                                    for (int j = 0; j <= i + 1; j++)
+                                        grams[j] = _binaryReaders[i].ReadInt32();
+                                else break;
+                                bool equal = true;
+                                bool backfill = false;
+                                for (int j = 0; j < grams.Length - 1; j++)
+                                    if (grams[j] < prevLeafNGrams[j]) //prevLeafNGrams[j]
+                                    {
+                                        equal = false;
+                                        break;
+                                    }
+                                    else if (grams[j] > prevLeafNGrams[j])
+                                        backfill = true;  //Console.WriteLine("bigger");
+                                if (backfill)
+                                {
+                                    _prevFillLocation[i + 1] = _currFillLocation[i + 1];
+                                    _binaryReaders[i].BaseStream.Seek(-1 * grams.Length * sizeof(int), SeekOrigin.Current);
+                                    break;
+                                }
+                                innerNode.Count = grams[grams.Length - 1];
+                                innerNode.Index = grams[grams.Length - 2];
+                                innerNode.Child = _prevFillLocation[i + 1];
+
+                                ((InnerNode*)_innerptr)[_pAccCount[i] + _currFillLocation[i]] = innerNode;
+                                _currFillLocation[i]++;
+
+                                if (equal)
+                                {
+                                    _prevFillLocation[i + 1] = _currFillLocation[i + 1];
+                                    break;
+                                }
+                                if (i > 0)
+                                    ReadUtilMatch(i, grams); //read until equal
+                            }
+                        }
+                        for (int i = gramMatchIndex; i < currLeafNGrams.Length; i++)
+                            prevLeafNGrams[i] = currLeafNGrams[i];
+                    }
+                }
+            }
+            {
+                //(gramMatchIndex == order - 1)
+                LeafNode leafNode;
+                leafNode.Prob = 0;
+                leafNode.Count = prevLeafNGrams[prevLeafNGrams.Length - 1];
+                leafNode.Index = prevLeafNGrams[prevLeafNGrams.Length - 2];
+                ((LeafNode*)_finalptr)[_currFillLocation[order - 1]] = leafNode;
+                _currFillLocation[order - 1]++;
+                for (int i = 0; i < currLeafNGrams.Length; i++)
+                    prevLeafNGrams[i] = currLeafNGrams[i];
+
+                for (int i = order - 2; i >= 0; i--)
+                {
+                    while (_binaryReaders[i].BaseStream.Position < _binaryReaders[i].BaseStream.Length)
+                    {
+                        int[] grams = new int[i + 2];
+                        for (int j = 0; j <= i + 1; j++)
+                            grams[j] = _binaryReaders[i].ReadInt32();
+                        InnerNode innerNode;
+                        innerNode.Prob = 0;
+                        innerNode.Bow = 0;
+                        innerNode.Count = grams[grams.Length - 1];
+                        innerNode.Index = grams[grams.Length - 2];
+                        innerNode.Child = _prevFillLocation[i + 1];
+                        _prevFillLocation[i + 1] = _currFillLocation[i + 1];
+                        ((InnerNode*)_innerptr)[_pAccCount[i] + _currFillLocation[i]] = innerNode;
+                        _currFillLocation[i]++;
+                        ReadUtilMatch(i, grams);
+                    }
+                }
+            }
+
+            foreach (BinaryReader t in _binaryReaders)
+                t.Close();
+            for (int i = 0; i < order - 1; i++)
+            {
+                InnerNode innerNode = new InnerNode { Index = 0x00ff00ff, Count = 0x00ee00ee };
+                innerNode.Child = Ngramcounts[i + 1];
+                /*
+                if (i + 2 < _pAccCount.Count)
+                    innerNode.Child = _pAccCount[i + 2] - 1;
+                else
+                    innerNode.Child = _pAccCount[_pAccCount.Count - 1] + Ngramcounts[Ngramcounts.Length - 1];*/
+                ((InnerNode*)_innerptr)[_pAccCount[i + 1] - 1] = innerNode;
+            }
+            {
+                LeafNode leafNode = new LeafNode();
+                leafNode.Index = 0x00ff00ff;
+                leafNode.Count = 0x00ee00ee;
+                ((LeafNode*)_finalptr)[Ngramcounts[Ngramcounts.Length - 1]] = leafNode;
+            }
+        }
+        private static int CompareListx(int[] list1, int[] list2)
+        {
+            if (list1 == null || list2 == null || list1.Length != list2.Length)
+                throw new Exception("List null or length not match!");
+            for (int i = 0; i < list1.Length - 2; i++)
+                if (list1[i] != list2[i])
+                    return list1[i] - list2[i];
+            return 0;
+        }
+        private static int CompareList(int[] list1, int[] list2)
+        {
+            if (list1 == null || list2 == null || list1.Length != list2.Length)
+                throw new Exception("List null or length not match!");
+            for (int i = 0; i < list1.Length - 2; i++)
+                if (list1[i] != list2[i])
+                    return list1[i] - list2[i];
+            return 0;
+        }
+
+        public static void CombineBinCounts()
+        {
+            int Num = 3;
+            int order = 2;
+            for (int i = 1; i < order; i++)
+            {
+                BinaryReader[] binaryReaders = new BinaryReader[Num];
+                for (int j = 0; j < Num; j++)
+                    binaryReaders[j] = new BinaryReader(new FileStream("index2." + (j + 1) + ".bin", FileMode.Open));
+                BinaryWriter binaryWriter = new BinaryWriter(new FileStream("2grams.bin", FileMode.OpenOrCreate));
+                List<int[]> lngrams = new List<int[]>();
+                for (int j = 0; j < Num; j++)
+                {
+                    int[] ngrams = new int[i + 3]; // ngram count index
+                    ngrams[i + 2] = j;
+                    for (int k = 0; k < i + 2; k++)
+                        ngrams[k] = binaryReaders[j].ReadInt32();
+                    lngrams.Add(ngrams);
+                }
+                while (lngrams.Count != 0)
+                {
+                    lngrams.Sort(CompareList);
+                    int equalIndex = 0;
+                    for (int j = 0; j < lngrams.Count - 1; j++)
+                    {
+                        if (CompareList(lngrams[j], lngrams[j + 1]) == 0)
+                            equalIndex++;
+                        else
+                            break;
+                    }
+                    int[] outngrams = new int[i + 2];
+                    for (int j = 0; j <= equalIndex; j++)
+                    {
+                        if (j == 0)
+                            for (int k = 0; k < lngrams[0].Length - 2; k++)
+                                outngrams[k] = lngrams[0][k];
+                        outngrams[i + 1] += lngrams[j][i + 1];
+                        if (binaryReaders[lngrams[j][i + 2]].BaseStream.Position <
+                            binaryReaders[lngrams[j][i + 2]].BaseStream.Length)
+                            for (int k = 0; k < i + 2; k++)
+                                lngrams[j][k] = binaryReaders[lngrams[j][i + 2]].ReadInt32();
+                        else
+                        {
+                            lngrams.RemoveAt(j);
+                            equalIndex--;
+                            j--;
+                        }
+                    }
+                    foreach (int t in outngrams)
+                        binaryWriter.Write(t);
+                }
+                binaryWriter.Close();
+                foreach (BinaryReader binaryReader in binaryReaders)
+                    binaryReader.Close();
+            }
+        }
+
+        public void Test2()
+        {
+            _vocab.GetVocab(_text);
+            textStats = new TextStats(_vocab.LineNums, _vocab.WordCounts);
+            StreamReader sr = new StreamReader(_text);
+            int[] warray = new int[textStats.NumWords + (textStats.NumLines + 1)*Math.Max(0, order - 1)];
+            Console.WriteLine();
+            BitArray maskarray = new BitArray(textStats.NumWords + (textStats.NumLines + 1)*Math.Max(0, order - 1));
+            int linecount = 0;
+            int wordcount = 0;
+            int maskcount = 0;
+            for (int i = 0; i < order - 1; i++)
+            {
+                warray[wordcount++] = _vocab.BOSIndex;
+                maskarray[maskcount++] = false;
+            }
+            while (true)
+            {
+                string line = sr.ReadLine();
+                if (line == null)
+                    break;
+                string[] words = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                linecount++;
+                int[] wids = new int[words.Length + 2];
+                int[] getwids = _vocab.GetIndexs(words);
+                for (int i = 0; i < getwids.Length; i++)
+                    wids[i + 1] = getwids[i];
+                wids[0] = _vocab.BOSIndex;
+                wids[wids.Length - 1] = _vocab.EOSIndex;
+                foreach (int t in wids)
+                {
+                    warray[wordcount++] = t;
+                    maskarray[maskcount++] = true;
+                }
+                for (int i = 0; i < order - 1; i++)
+                {
+                    warray[wordcount++] = _vocab.EOSIndex;
+                    maskarray[maskcount++] = false;
+                }
+                if (linecount % 10000 == 0)
+                    Console.Write("\rLine " + linecount);
+            }
+            Console.WriteLine();
+            Console.WriteLine(wordcount - warray.Length);
+            DateTime dateTime = DateTime.Now;
+
+            Ksarray1(warray, maskarray, order, _vocab.Word2Index.Count);
+            Console.WriteLine(DateTime.Now - dateTime);
+        }
+
+        public bool CompareBinFile(string file1, string file2)
+        {
+            int order = 5;
+            BinaryReader bin1 = new BinaryReader(new FileStream(file1, FileMode.Open));
+            BinaryReader bin2 = new BinaryReader(new FileStream(file2, FileMode.Open));
+            if (bin1.BaseStream.Length != bin2.BaseStream.Length)
+                return false;
+            while (bin1.BaseStream.Position < bin1.BaseStream.Length)
+            {
+                int[] token1 = new int[order];
+                int[] token2 = new int[order];
+                for (int i = 0; i < order; i++)
+                {
+                    token1[i] = bin1.ReadInt32();
+                    token2[i] = bin2.ReadInt32();
+                }
+                if (CompareList(token1, token2) != 0)
+                    return false;
+            }
+            bin2.Close();
+            bin1.Close();
+            return true;
+        }
+
+        void Ksarray1(int[] wa, BitArray bitArray, int order, int max)
+        {
+            int[] ngrams = new int[order + 1];
+            int len = wa.Length - order + 1;
+            int[] ccount = new int[max];
+            int[] pcount = new int[max + 1];
+            int[] sindex = new int[len];
+            int[] pindex = new int[len];
+            for (int i = 0; i < sindex.Length; i++)
+                sindex[i] = i;
+            for (int i = 1; i < len; i++)
+                ccount[wa[i + order - 1]]++;
+            for (int k = 0; k < order; k++)
+            {
+                for (int i = 0; i < sindex.Length; i++)
+                    pindex[i] = sindex[i];
+                for (int i = 0; i < pcount.Length; i++)
+                    pcount[i] = 0;
+                ccount[wa[0 + order - k - 1]]++;
+                if (k != 0)
+                    ccount[wa[len + order - k - 1]]--; //- 1
+                for (int i = 1; i < ccount.Length + 1; i++)
+                    pcount[i] = pcount[i - 1] + ccount[i - 1];
+                for (int i = 0; i < len; i++)
+                {
+                    int index = pindex[i] + order - k - 1;
+                    sindex[pcount[wa[index]]] = pindex[i];
+                    pcount[wa[index]]++;
+                }
+
+                {
+                    BinaryWriter binaryWriter =
+                        new BinaryWriter(new FileStream("index" + (k + 1) + ".bin", FileMode.Create));
+                    Console.WriteLine("writing {0} grams", k + 1);
+                    bool initial = true;
+                    int[] currgram = new int[k + 2];
+                    int[] prevrgram = new int[k + 2];
+                    if (_vocab.UnkIsWord && k == 0)
+                    {
+                        binaryWriter.Write(prevrgram[0]);
+                        binaryWriter.Write(prevrgram[1]);
+                    }
+
+                    for (int i = 0; i < sindex.Length; i++)
+                    {
+                        if (bitArray[sindex[i] + order - k - 1] && bitArray[sindex[i] + order - 1])
+                        {
+                            for (int j = sindex[i] + order - k - 1; j <= sindex[i] + order - 1; j++)
+                                currgram[j - (sindex[i] + order - k - 1)] = wa[j];
+                            currgram[k + 1] = 1;
+                            if (initial)
+                            {
+                                for (int j = 0; j < currgram.Length; j++)
+                                    prevrgram[j] = currgram[j];
+                                initial = false;
+                                continue;
+                            }
+                            {
+                                bool equal = true;
+                                for (int j = 0; j < currgram.Length - 1; j++)
+                                    if (currgram[j] != prevrgram[j])
+                                    {
+                                        equal = false;
+                                        break;
+                                    }
+                                if (equal)
+                                    prevrgram[k + 1]++;
+                                else //output
+                                {
+                                    ngrams[k + 1]++;
+                                    foreach (int gram in prevrgram)
+                                        binaryWriter.Write(gram);
+                                    for (int j = 0; j < currgram.Length; j++)
+                                        prevrgram[j] = currgram[j];
+                                }
+                            }
+                        }
+                    }
+                    foreach (int gram in prevrgram)
+                        binaryWriter.Write(gram);
+                    ngrams[k + 1]++;
+                    binaryWriter.Close();
+                }
+            }
+            Console.WriteLine();
+        }
+    }
+}

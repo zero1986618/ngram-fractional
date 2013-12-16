@@ -1,0 +1,36 @@
+﻿using System;
+using System.IO;
+namespace ngram
+{
+    partial class Program
+    {
+        static void Main(string[] args)
+        {
+            //testGenBin();
+            //TestConvertBin();
+            testOutputLMs();
+            //testbLM();
+            //testVocab();
+            //return;
+            //testEnum();
+            //testGenLevelCounts();
+            //return;
+            //testGenBinR();
+            //testOutputLM(5);
+            //testOutputLM(2);
+            //testOutputLM(3);
+            //testOutputLM(4);
+            //testOutputLM(5);
+
+            //testVocab();
+            //testSRILM();
+            //testDiscount();
+
+            //testEnum();
+            //testDiscount();
+            //testGenLevelCounts();
+            //testSearch();
+            //Console.WriteLine(CompareByte("counts.recurse.bin", "counts.eee.bin"));
+        }
+    }
+}

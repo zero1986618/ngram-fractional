@@ -1,0 +1,875 @@
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text;
+
+namespace ngram
+{
+    /* if (countsOfCounts[1] == 0)
+            {
+                Console.Error.WriteLine("Warning: no singleton counts");
+                _maxCount = 0;
+            }
+            while (_maxCount > 0 && countsOfCounts[_maxCount + 1] == 0)
+            {
+                Console.Error.WriteLine("warning: count of count {0} is zero -- lowering maxcount\n", _maxCount + 1);
+                _maxCount--;
+            }
+            if (_maxCount <= 0)
+                Console.Error.WriteLine("GT discounting disabled\n");
+            else
+            {
+                double commonTerm = (_maxCount + 1) * (double)countsOfCounts[_maxCount + 1] / countsOfCounts[1];
+                for (int i = 1; i <= _maxCount; i++)
+                {
+                    double coeff = 1.0;
+                    if (countsOfCounts[i] == 0)
+                        Console.Error.WriteLine("warning: count of count {0} is zero\n", i);
+                    else
+                    {
+                        double coeff0 = (i + 1) * (double)countsOfCounts[i + 1] / (i * (double)countsOfCounts[i]);
+                        coeff = (coeff0 - commonTerm) / (1.0 - commonTerm);
+                        if (!double.IsInfinity(coeff) || coeff <= ProbEpsilon || coeff0 > 1.0)
+                        {
+                            Console.Error.WriteLine("warning: discount coeff {0} is out of range: {1}", i, coeff);
+                            coeff = 1.0;
+                        }
+                    }
+                    _discountCoeffs[i] = coeff;
+                }
+            }
+            return false;*/
+    /*  public void Test1()
+        {
+            GetVocab();
+            StreamReader sr = new StreamReader(_text);
+            int order = 5;
+            int[] warray = new int[vocab.WordCounts - 1 + (vocab.LineNums + 1) * Math.Max(0, order - 1)];
+            Console.WriteLine();
+            BitArray maskarray = new BitArray(vocab.WordCounts - 1 + (vocab.LineNums + 1) * Math.Max(0, order - 1));
+            int linecount = 0;
+            int wordcount = 0;
+            int maskcount = 0;
+            for (int i = 0; i < order - 2; i++)
+            {
+                warray[wordcount++] = vocab.BOSIndex;
+                maskarray[maskcount++] = false;
+            }
+            while (true)
+            {
+                string line = sr.ReadLine();
+                if (line == null)
+                    break;
+                string[] words = line.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                linecount++;
+                int[] wids = new int[words.Length + 2];
+                int[] getwids = vocab.GetIndexs(words);
+                for (int i = 0; i < getwids.Length; i++)
+                    wids[i + 1] = getwids[i];
+                wids[0] = vocab.BOSIndex;
+                wids[wids.Length - 1] = vocab.EOSIndex;
+                foreach (int t in wids)
+                {
+                    warray[wordcount++] = t;
+                    maskarray[maskcount++] = true;
+                }
+                for (int i = 0; i < order - 1; i++)
+                {
+                    warray[wordcount++] = vocab.EOSIndex;
+                    maskarray[maskcount++] = false;
+                }
+                if (linecount % 100000 == 0)
+                    Console.Write("\rLine " + linecount);
+            }
+            Console.WriteLine();
+            Console.WriteLine(wordcount - warray.Length);
+            DateTime dateTime = DateTime.Now;
+
+            Ksarray(warray, maskarray, order, vocab.Word2Index.Count);
+            Console.WriteLine(DateTime.Now - dateTime);
+        }
+        static void Ksarray(int[] wa, BitArray bitArray, int order, int max)
+        {
+            int[] ngrams = new int[order + 1];
+            int len = wa.Length - order + 1;
+            int[] ccount = new int[max];
+            int[] pcount = new int[max + 1];
+            int[] sindex = new int[len];
+            int[] pindex = new int[len];
+            for (int i = 0; i < sindex.Length; i++)
+                sindex[i] = i;
+            for (int i = 1; i < len; i++)
+                ccount[wa[i + order - 1]]++;
+            for (int k = 0; k < order; k++)
+            {
+                for (int i = 0; i < sindex.Length; i++)
+                    pindex[i] = sindex[i];
+                for (int i = 0; i < pcount.Length; i++)
+                    pcount[i] = 0;
+                ccount[wa[0 + order - k - 1]]++;
+                if (k != 0)
+                    ccount[wa[len + order - k - 1]]--; //- 1            
+                for (int i = 1; i < ccount.Length + 1; i++)
+                    pcount[i] = pcount[i - 1] + ccount[i - 1];
+                for (int i = 0; i < len; i++)
+                {
+                    int index = pindex[i] + order - k - 1;
+                    sindex[pcount[wa[index]]] = pindex[i];
+                    pcount[wa[index]]++;
+                }
+
+                {
+                    BinaryWriter binaryWriter =
+                        new BinaryWriter(new FileStream("index" + (k + 1) + ".bin", FileMode.Create));
+                    Console.WriteLine("writing {0} grams", k + 1);
+                    bool initial = true;
+                    int[] currgram = new int[k + 2];
+                    int[] prevrgram = new int[k + 2];
+                    for (int i = 0; i < sindex.Length; i++)
+                    {
+                        if (bitArray[sindex[i] + order - k - 1] && bitArray[sindex[i] + order - 1])
+                        {
+                            for (int j = sindex[i] + order - k - 1; j <= sindex[i] + order - 1; j++)
+                                currgram[j - (sindex[i] + order - k - 1)] = wa[j];
+                            currgram[k + 1] = 1;
+                            if (initial)
+                            {
+                                for (int j = 0; j < currgram.Length; j++)
+                                    prevrgram[j] = currgram[j];
+                                initial = false;
+                                continue;
+                            }
+                            {
+                                bool equal = true;
+                                for (int j = 0; j < currgram.Length - 1; j++)
+                                    if (currgram[j] != prevrgram[j])
+                                    {
+                                        equal = false;
+                                        break;
+                                    }
+                                if (equal)
+                                    prevrgram[k + 1]++;
+                                else //output
+                                {
+                                    ngrams[k + 1]++;
+                                    if (prevrgram.Length == 2 && prevrgram[0] == 1)
+                                    {
+                                        binaryWriter.Write(prevrgram[0]);
+                                        binaryWriter.Write(prevrgram[1] + 1);
+                                    }
+                                    else
+                                        foreach (int gram in prevrgram)
+                                            binaryWriter.Write(gram);
+                                    for (int j = 0; j < currgram.Length; j++)
+                                        prevrgram[j] = currgram[j];
+                                }
+                            }
+                        }
+                    }
+                    foreach (int gram in prevrgram)
+                        binaryWriter.Write(gram);
+                    ngrams[k + 1]++;
+                    binaryWriter.Close();
+                }
+            }
+            Console.WriteLine();
+        }*/
+    /* void BackOffRead(int level)
+         {
+             int[] currLeafNGrams = new int[order + 1]; //ngrams read in, ngram[order] + count[1]
+             int[] prevLeafNGrams = new int[order + 1]; //ngrams read in, ngram[order] + count[1]
+             bool initial = true;
+             bool finalAppend = true;
+             while (finalAppend)
+             {
+                 //if (binaryReaders[order - 1].BaseStream.Position - binaryReaders[order - 1].BaseStream.Length == -24)
+                 //    Console.WriteLine();
+                 if (binaryReaders[order - 1].BaseStream.Position >= binaryReaders[order - 1].BaseStream.Length)
+                 {
+                     finalAppend = false;
+                     for (int i = 0; i < order; i++)
+                         currLeafNGrams[i] = int.MaxValue;
+                 }
+                 else
+                 {
+                     for (int i = 0; i < order + 1; i++)
+                         currLeafNGrams[i] = binaryReaders[order - 1].ReadInt32();
+                 }
+
+                 if (initial)
+                 {
+                     for (int i = 0; i < order + 1; i++)
+                         prevLeafNGrams[i] = currLeafNGrams[i];
+                     initial = false;
+                 }
+                 else
+                 {
+                     int gramMatchIndex = 0;
+                     for (int i = 0; i < order; i++)
+                         if (currLeafNGrams[i] == prevLeafNGrams[i])
+                             gramMatchIndex = i + 1;
+                         else
+                             break;
+                     if (gramMatchIndex == order)
+                         Console.Error.WriteLine("error! duplicated ngrams");
+                     else
+                     {
+                         //(gramMatchIndex == order - 1)
+                         LeafNode leafNode;
+                         leafNode.Count = prevLeafNGrams[prevLeafNGrams.Length - 1];
+                         leafNode.Index = prevLeafNGrams[prevLeafNGrams.Length - 2];
+                         ((LeafNode*)_finalptr)[currFillLocation[order - 1]] = leafNode;
+                         currFillLocation[order - 1]++;
+
+                         for (int i = order - 2; i >= gramMatchIndex; i--)
+                         {
+                             while (true)
+                             {
+                                 InnerNode innerNode;
+                                 int[] grams = new int[i + 2];
+                                 if (binaryReaders[i].BaseStream.Position < binaryReaders[i].BaseStream.Length)
+                                     for (int j = 0; j <= i + 1; j++)
+                                         grams[j] = binaryReaders[i].ReadInt32();
+                                 else break;
+                                 bool equal = true;
+                                 for (int j = 0; j < grams.Length - 1; j++)
+                                     if (grams[j] < prevLeafNGrams[j]) //prevLeafNGrams[j]
+                                     {
+                                         equal = false;
+                                         break;
+                                     }
+                                     else if (grams[j] > prevLeafNGrams[j])
+                                         Console.WriteLine("bigger");
+
+                                 innerNode.Count = grams[grams.Length - 1];
+                                 innerNode.Index = grams[grams.Length - 2];
+                                 innerNode.Child = prevFillLocation[i + 1];
+
+                                 ((InnerNode*)_innerptr)[_pAccCount[i] + currFillLocation[i]] = innerNode;
+                                 currFillLocation[i]++;
+
+                                 if (equal)
+                                 {
+                                     prevFillLocation[i + 1] = currFillLocation[i + 1];
+                                     break;
+                                 }
+                                 if (i > 0)
+                                     ReadUtilMatch(i, grams); //read until equal
+                             }
+                         }
+                         for (int i = gramMatchIndex; i < currLeafNGrams.Length; i++)
+                             prevLeafNGrams[i] = currLeafNGrams[i];
+                     }
+                 }
+             }
+             {
+                 //(gramMatchIndex == order - 1)
+                 LeafNode leafNode;
+                 leafNode.Count = prevLeafNGrams[prevLeafNGrams.Length - 1];
+                 leafNode.Index = prevLeafNGrams[prevLeafNGrams.Length - 2];
+                 ((LeafNode*)_finalptr)[currFillLocation[order - 1]] = leafNode;
+                 currFillLocation[order - 1]++;
+                 for (int i = 0; i < currLeafNGrams.Length; i++)
+                     prevLeafNGrams[i] = currLeafNGrams[i];
+
+                 for (int i = order - 2; i >= 0; i--)
+                 {
+
+                     int[] grams = new int[i + 2];
+                     for (int j = 0; j <= i + 1; j++)
+                         grams[j] = binaryReaders[i].ReadInt32();
+                     InnerNode innerNode;
+                     innerNode.Count = grams[grams.Length - 1];
+                     innerNode.Index = grams[grams.Length - 2];
+                     innerNode.Child = prevFillLocation[i + 1];
+                     prevFillLocation[i + 1] = currFillLocation[i + 1];
+                     ((InnerNode*)_innerptr)[_pAccCount[i] + currFillLocation[i]] = innerNode;
+                     currFillLocation[i]++;
+                 }
+             }
+             foreach (BinaryReader t in binaryReaders)
+                 t.Close();
+             for (int i = 0; i < order - 1; i++)
+             {
+                 InnerNode innerNode = new InnerNode();
+                 innerNode.Index = 0x00ff00ff;
+                 innerNode.Count = 0x00ff00ee;
+                 if (i + 2 < _pAccCount.Count)
+                     innerNode.Child = _pAccCount[i + 2] - 1;
+                 else
+                     innerNode.Child = _pAccCount[_pAccCount.Count - 1] + Ngramcounts[Ngramcounts.Length - 1];
+                 ((InnerNode*)_innerptr)[_pAccCount[i + 1] - 1] = innerNode;
+             }
+             {
+                 LeafNode leafNode = new LeafNode();
+                 ((LeafNode*)_finalptr)[Ngramcounts[Ngramcounts.Length - 1]] = leafNode;
+             }
+         }*/
+    
+    
+    
+    /*   {
+                                if (k == order - 1)
+                                {
+                                    bool all2 = true;
+                                    for (int j = 0; j < k - 1; j++)
+                                    {
+                                        if (currgram[j] != 2)
+                                        {
+                                            all2 = false;
+                                            break;
+                                        }
+                                    }
+                                    if (all2)
+                                        Console.WriteLine();
+                                }
+                            }*/
+    /*    BinaryWriter ngramWriter = new BinaryWriter(new FileStream("counts.bin", FileMode.Create));
+            foreach (int ngram in ngrams)
+                ngramWriter.Write(ngram);
+            ngramWriter.Close();*/
+    /*BinaryReader binaryReader = new BinaryReader(new FileStream("counts.bin", FileMode.Open));
+            List<int> lorder = new List<int>();
+            while (binaryReader.BaseStream.Position < binaryReader.BaseStream.Length)
+            {
+                int count = binaryReader.ReadInt32();
+                if (count != 0)
+                    lorder.Add(count);
+            }
+            int order = lorder.Count - 1;
+            binaryReader.Close();*/
+    /*
+int lc = 0;
+foreach (int t in sindex)
+{
+lc++;
+//if (lc == 1)
+//    continue;
+for (int j = 0; j < order; j++)
+Console.Write(wa[t + j] + " ");
+Console.WriteLine();
+}
+*/
+    /*
+          int[] ccounts = new int[vocab.Word2Index.Count];
+          int[] pcounts = new int[vocab.Word2Index.Count];
+          int order = 3;
+          for (int i = 0; i < order; i++)
+              foreach (int t in warray)
+                  ccounts[t]++;
+          for (int i = 1; i < ccounts.Length; i++)
+              pcounts[i] = pcounts[i - 1] + ccounts[i];
+          for (int i = warray.Length - 1; i >= 0; i--)
+          {
+              sindex[pcounts[warray[i]]] = i;
+              sranks[i] = pcounts[warray[i]];
+              pcounts[warray[i]]--;
+          }
+          */
+    /*
+        static void Test()
+        {
+            Vocab vocab = GetVocab();
+            StreamReader sr = new StreamReader(@"c:/zhaoyg/part.en");
+            DateTime date = DateTime.Now;
+            Console.WriteLine();
+            int[] countofcount = new int[5];
+            int order = 5;
+            int lc = 0;
+            int[] counts1 = new int[vocab.Word2Index.Count];
+            Dictionary<int, int>[] counts2 = new Dictionary<int, int>[vocab.Word2Index.Count];
+            Dictionary<bit2, int>[] counts3 = new Dictionary<bit2, int>[vocab.Word2Index.Count];
+            Dictionary<bit3, int>[] counts4 = new Dictionary<bit3, int>[vocab.Word2Index.Count];
+            Dictionary<bit4, int>[] counts5 = new Dictionary<bit4, int>[vocab.Word2Index.Count];
+            for (int i = 0; i < counts4.Length; i++)
+            {
+                counts5[i] = new Dictionary<bit4, int>();
+                counts4[i] = new Dictionary<bit3, int>();
+                counts3[i] = new Dictionary<bit2, int>();
+                counts2[i] = new Dictionary<int, int>();
+            }
+            while (true)
+            {
+                string line = sr.ReadLine();
+                if (line == null)
+                    break;
+                string[] words = line.Split(new[] {' '}, StringSplitOptions.RemoveEmptyEntries);
+                lc++;
+                int[] wids = vocab.GetIndexs(words);
+                bit4 bit4;
+                bit3 bit3;
+                bit2 bit2;
+                for (int i = 0; i < wids.Length; i++)
+                {
+                    counts1[wids[i]]++;
+                    if (i < wids.Length - 1)
+                    {
+                        bit2.x1 = wids[i + 1];
+                        if (!counts2[wids[0]].ContainsKey(wids[i + 1]))
+                            counts2[wids[0]].Add(wids[i + 1], 1);
+                        else counts2[wids[0]][wids[i + 1]]++;
+                    }
+                    if (i < wids.Length - 2)
+                    {
+                        bit2.x1 = wids[i + 1];
+                        bit2.x2 = wids[i + 2];
+                        if (!counts3[wids[0]].ContainsKey(bit2))
+                            counts3[wids[0]].Add(bit2, 1);
+                        else counts3[wids[0]][bit2]++;
+                    }
+                    if (i < wids.Length - 3)
+                    {
+                        bit3.x1 = wids[i + 1];
+                        bit3.x2 = wids[i + 2];
+                        bit3.x3 = wids[i + 3];
+                        if (!counts4[wids[0]].ContainsKey(bit3))
+                            counts4[wids[0]].Add(bit3, 1);
+                        else counts4[wids[0]][bit3]++;
+                    }
+                    if (i < wids.Length - 4)
+                    {
+                        bit4.y1 = wids[i + 1];
+                        bit4.y2 = wids[i + 2];
+                        bit4.y3 = wids[i + 3];
+                        bit4.y4 = wids[i + 4];
+                        if (!counts5[wids[0]].ContainsKey(bit4))
+                            counts5[wids[0]].Add(bit4, 1);
+                        else counts5[wids[0]][bit4]++;
+                    }
+                }
+                if (lc%100000 == 0)
+                    Console.Write("\rLine " + lc);              
+            }
+            countofcount[0] = counts1.Length;
+            for (int i = 0; i < counts1.Length; i++)
+            {
+                countofcount[1] += counts2[i].Count;
+                countofcount[2] += counts3[i].Count;
+                countofcount[3] += counts4[i].Count;
+                countofcount[4] += counts5[i].Count;
+            }
+            FileStream fs = new FileStream("counts.txt", FileMode.OpenOrCreate);
+            BinaryWriter bw = new BinaryWriter(fs);
+            for (int i = 0; i < counts1.Length; i++)
+            {
+                bw.Write(i);
+                bw.Write(counts1[i]);
+            }
+        
+            for (int i = 0; i < counts3.Length; i++)
+            {
+                bw.Write(i);
+                bw.Write(counts1[i]);
+            }
+            for (int i = 0; i < counts4.Length; i++)
+            {
+                bw.Write(i);
+                bw.Write(counts1[i]);
+            }
+            for (int i = 0; i < counts5.Length; i++)
+            {
+                bw.Write(i);
+                bw.Write(counts1[i]);
+            }
+            Console.WriteLine();            
+            DateTime dateTime = DateTime.Now;
+            int index = 0;
+            foreach (Dictionary<int, int> dictionary in counts2)
+            {
+                List<int> x = new List<int>(dictionary.Keys);
+                x.Sort();
+                foreach (int t in x)
+                {
+                    bw.Write(index);
+                    bw.Write(t);
+                    bw.Write(dictionary[t]);
+                }
+                index++;
+            }
+            Console.WriteLine(DateTime.Now - dateTime);
+            dateTime = DateTime.Now;
+            index = 0;
+            foreach (Dictionary<bit2, int> dictionary in counts3)
+            {
+                List<bit2> x = new List<bit2>(dictionary.Keys);
+                x.Sort();
+                foreach (bit2 t in x)
+                {
+                    bw.Write(index);
+                    bw.Write(t.x1);
+                    bw.Write(t.x2);
+                    bw.Write(dictionary[t]);
+                }
+            }
+            Console.WriteLine(DateTime.Now - dateTime);
+            dateTime = DateTime.Now;
+            foreach (Dictionary<bit3, int> dictionary in counts4)
+            {
+                List<bit3> x = new List<bit3>(dictionary.Keys);
+                x.Sort();
+                foreach (bit3 t in x)
+                {
+                    bw.Write(index);
+                    bw.Write(t.x1);
+                    bw.Write(t.x2);
+                    bw.Write(t.x3);
+                    bw.Write(dictionary[t]);
+                }
+            }
+            Console.WriteLine(DateTime.Now - dateTime);
+            sr.Close();
+            dateTime = DateTime.Now;
+            foreach (Dictionary<bit4, int> dictionary in counts5)
+            {
+                List<bit4> x = new List<bit4>(dictionary.Keys);
+                x.Sort();
+                foreach (bit4 t in x)
+                {
+                    bw.Write(index);
+                    bw.Write(t.y1);
+                    bw.Write(t.y2);
+                    bw.Write(t.y3);
+                    bw.Write(t.y4);
+                    bw.Write(dictionary[t]);
+                }
+            }
+            Console.WriteLine(DateTime.Now - dateTime);
+            bw.Close();
+
+            Console.WriteLine(DateTime.Now - date);
+        }
+
+        struct bit2 : IComparable
+        {
+            public int x1;
+            public int x2;
+            public int CompareTo(object obj)
+            {
+                bit2 bit5 = (bit2)obj;
+                if (x1 != bit5.x1)
+                    return x1 - bit5.x1;
+                if (x2 != bit5.x2)
+                    return x2 - bit5.x2;
+                return 0;
+            }
+        }
+        struct bit3:IComparable
+        {
+            public int x1;
+            public int x2;
+            public int x3;
+            public int CompareTo(object obj)
+            {
+                bit3 bit5 = (bit3) obj;
+                if (x1 != bit5.x1)
+                    return x1 - bit5.x1;
+                if (x2 != bit5.x2)
+                    return x2 - bit5.x2;
+                if (x3 != bit5.x3)
+                    return x3 - bit5.x3;
+                return 0;
+            }
+        }
+        struct bit4 : IComparable
+        {
+            public int y1;
+            public int y2;
+            public int y3;
+            public int y4;
+            public int CompareTo(object obj)
+            {
+                bit4 bit5 = (bit4)obj;
+                if (y1 != bit5.y1)
+                    return y1 - bit5.y1;
+                if (y2 != bit5.y2)
+                    return y2 - bit5.y2;
+                if (y3 != bit5.y3)
+                    return y3 - bit5.y3;
+                if (y4 != bit5.y4)
+                    return y4 - bit5.y4;
+                return 0;
+            }
+        }*/
+    /*   public int[] GetIndexs(string sent)
+         {
+             string[] w = sent.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+             int[] wid = new int[w.Length];
+             for (int i = 0; i < w.Length; i++)
+                 if (_word2Index.ContainsKey(w[i]))
+                     wid[i] = _word2Index[w[i]];
+                 else
+                     wid[i] = _word2Index["<unk>"];
+             return wid;
+         }*/
+    
+    /*    private static TKey TZero;
+
+        public Trie<TKey, TData> RemoveTrie(TKey key)
+        {
+            TKey[] keys = new TKey[2];
+            keys[0] = key;
+            keys[1] = TZero;
+            return RemoveTrie(keys);
+        }
+       
+        public Trie<TKey, TData> RemoveTrie(TKey[] keys)
+        {
+            bool needDel = false;
+            return RemoveTrie(keys, 0, ref needDel);
+        }
+        Trie<TKey, TData> RemoveTrie(TKey[] keys, int index, ref bool needDel)
+        {
+            needDel = false;
+            if (keys.Length == index || index == keys.Length - 1 && keys[index].CompareTo(TZero) == 0)
+                return this;
+            if (index == keys.Length - 2 && keys[index + 1].CompareTo(TZero) == 0)
+            {
+                if (_subTrie.ContainsKey(keys[index]))
+                {
+                    _subTrie[keys[index]].Clear();
+                    Trie<TKey, TData> sub = _subTrie[keys[index]];
+                    _subTrie.Remove(keys[index]);
+                    return sub;
+                }
+                return null;
+            }
+            if (_subTrie.ContainsKey(keys[index]))
+            {
+                Trie<TKey, TData> subTrieNode = _subTrie[keys[index]];
+                Trie<TKey, TData> tsn = subTrieNode.RemoveTrie(keys, index + 1, ref needDel);
+                if (needDel)
+                {
+                    _subTrie.Remove(keys[index]);
+                    needDel = _subTrie.Count == 0;
+                }
+                return tsn;
+            }
+            return null;
+        }*/
+    /* class TrieIterator<TKey, TData>
+       where TKey : IComparable
+    {
+        private Trie<TKey, TData> trie;
+        private TrieIterator<TKey, TData> subIter;
+        private int level;
+        public static TKey[] mkeys;
+        private bool done;
+        private TKey[] keys;
+        public Trie<TKey, TData> Current;
+        private long count;
+        public static int order;
+
+        public TrieIterator(Trie<TKey, TData> trie, int level)
+        {
+            this.trie = trie;
+            this.level = level;
+            keys = this.trie.SubTrie.Keys.ToArray();
+            order = level;
+            mkeys = new TKey[order];
+        }
+
+        private TrieIterator(Trie<TKey, TData> trie, int level, bool inside)
+        {
+            this.trie = trie;
+            this.level = level;
+            keys = this.trie.SubTrie.Keys.ToArray();
+        }
+
+        public void Init()
+        {
+            subIter = null;
+        }
+        public bool MoveNext()
+        {
+            return MoveNext(out Current);
+        }
+
+        public bool MoveNext(out Trie<TKey, TData> ocurrent)
+        {
+            ocurrent = null;
+            if (level == 0)
+            {
+                if (done)
+                    return false;
+                done = false;
+                ocurrent = trie;
+            }
+            else if (level == 1)
+            {
+                if (count == keys.Length)
+                    return false;
+                ocurrent = trie.SubTrie[keys[count]];
+                mkeys[order - level] = keys[count];
+                count++;
+            }
+            else
+            {
+                while (true)
+                {
+                    if (subIter == null)
+                    {
+                        if (count == keys.Length || keys.Length == 0)
+                            return false;
+                        ocurrent = trie.SubTrie[keys[count]];
+                        mkeys[order - level] = keys[count];
+                        count++;
+                        subIter = new TrieIterator<TKey, TData>(ocurrent, level - 1, false);
+                    }
+                    if (subIter.MoveNext(out ocurrent))
+                        return true;
+                    subIter = null;
+                }
+            }
+            return true;
+        }
+    }*/
+    /*
+    class TrieIterator<TKey, TData>
+        where TKey : IComparable
+    {
+        private Trie<TKey, TData> trie;
+        private TrieIterator<TKey, TData> subIter;
+        private int level;
+        private TKey[] mkeys;
+        private bool done;
+        private TKey[] keys;
+        public Trie<TKey, TData> Current;
+        private long count;
+        public TrieIterator(Trie<TKey, TData> trie, TKey[] mkeys, int level)
+        {
+            this.trie = trie;
+            this.level = level;
+            keys = this.trie.SubTrie.Keys.ToArray();
+            this.mkeys = mkeys;
+            if (this.level >= 0 && this.level <= 1)
+                this.mkeys[this.level] = TZero;
+        }
+
+        private static TKey TZero;
+        public void Init()
+        {
+            subIter = null;
+        }
+        public bool MoveNext()
+        {
+            return MoveNext(out Current);
+        }
+
+        public bool MoveNext(out Trie<TKey, TData> ocurrent)
+        {
+            ocurrent = null;
+            if (level == 0)
+            {
+                if (done)
+                    return false;
+                done = false;
+                ocurrent = trie;
+            }
+            else if (level == 1)
+            {
+                if (count == keys.Length - 1)
+                    return false;
+                ocurrent = trie.SubTrie[keys[count]];
+                mkeys[0] = keys[count];
+                count++;
+            }
+            else
+            {
+                while (true)
+                {
+                    if (subIter == null)
+                    {
+                        if (count == keys.Length - 1)
+                            return false;
+                        ocurrent = trie.SubTrie[keys[count]];
+                        mkeys[0] = keys[count];
+                        count++;
+                        subIter = new TrieIterator<TKey, TData>(ocurrent, mkeys, level - 1);
+                        if (!subIter.MoveNext(out ocurrent))
+                            return false;
+                    }
+                }
+            }
+            return true;
+        }
+    }*/
+    /*   class xVocab
+    {
+        private const int VocabNone = int.MaxValue;
+        private const string VocabUnknown = "<unk>";
+        private const string VocabSentStart = "<s>";
+        private const string VocabSentEnd = "</s>";
+        private const string VocabPause = "-pau-";
+        int _unkIndex;		// <unk> index
+        int _ssIndex;		// <s> index
+        int _seIndex;		// </s> index
+        int _pauseIndex;		// -pau- index
+        bool _unkIsWord;			// consider <unk> a regular word
+        private bool toLower;
+        private List<string> vlist;
+        private Dictionary<string, int> vdict;
+        private Dictionary<string, int> metTagDict;       
+        int addWord(string name)
+        {
+            if (toLower)
+                name = name.ToLower();
+            if (vdict.ContainsKey(name))
+                return vdict[name];
+            vlist.Add(name);
+            vdict.Add(name, vlist.Count);
+            return vlist.Count;
+        }
+
+
+        private int addWordAlias(int word, string name)
+        {
+            return 1;
+        }
+        string getWord(int index)
+        {
+            return "";
+        }
+        private int getIndex(string name, int unkIndex = VocabNone)
+        {
+            return 1;
+        }
+        void remove(string name) { }
+        void remove(int index) { }
+        int numWords()
+        {
+            return 1;
+        }
+        int highIndex()
+        {
+            return 1;
+        }
+
+        // Special (pseudo-) vocabulary tokens
+        int unkIndex() { return _unkIndex; }  // <unk> index
+        int ssIndex() { return _ssIndex; }   // <s> index 
+        int seIndex() { return _seIndex; }	   // </s> index
+        int pauseIndex() { return _pauseIndex; } // -pau- index//
+
+        bool unkIsWord() { return _unkIsWord; }
+        // consider <unk> a regular word
+        // Some Vocab tokens/indices are "pseudo words", i.e., they don't get probabilities since they can only occur in contexts.
+
+        bool isNonEvent(string word)	// pseudo-word? //
+        { return isNonEvent(getIndex(word)); }
+        bool isNonEvent(int word)	// non-event?//
+        {
+            return false;
+            //return (!_unkIsWord && (word == _unkIndex)) ||	nonEventMap.find(word) != 0; 
+        }
+        int addNonEvent(int word)
+        {
+            return 1;
+        }
+        int addNonEvent(string name)
+        { return addNonEvent(addWord(name)); }
+        bool removeNonEvent(int word)
+        {
+            return false;
+        }
+    }*/
+}
