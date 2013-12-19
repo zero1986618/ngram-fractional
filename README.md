@@ -1,7 +1,7 @@
 frac-ngram
 ================
 
-A language model tool based on suffix array, which can train language model under both fractional(for Modified KN) and integer count(for Witten-Bell, Good-Turing, KN and Modified KN).
+A language model tool based on suffix array, which can train LM under both fractional(for Modified KN) and integer count(for Witten-Bell, Good-Turing, KN and Modified KN).
 
 Usage:
    frac-ngram 
