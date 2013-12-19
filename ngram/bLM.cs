@@ -98,6 +98,7 @@ namespace ngram
         private bool _useCutoff = LMConfig.GetOption("useCutoff", false);
         readonly string _smoothing = LMConfig.GetOption("smoothing");
         private float level0Bow;
+
         public bool EstimateMKN(Discount[] discounts)
         {
             for (int i = 0; i < _binFile.NGramcounts.Length; i++)
@@ -109,12 +110,13 @@ namespace ngram
             if (reverse)
                 specialIndex = _vocab.BOSIndex;
             if (!reverse)
-                ((InnerNode*)_binFile.InnerPtr)[_vocab.BOSIndex].Prob = float.PositiveInfinity;
+                ((InnerNode*) _binFile.InnerPtr)[_vocab.BOSIndex].Prob = float.PositiveInfinity;
             else
-                ((InnerNode*)_binFile.InnerPtr)[_vocab.EOSIndex].Prob = float.PositiveInfinity;
-            ((InnerNode*)_binFile.InnerPtr)[_vocab.UnkIndex].Prob = float.NaN;
+                ((InnerNode*) _binFile.InnerPtr)[_vocab.EOSIndex].Prob = float.PositiveInfinity;
+            ((InnerNode*) _binFile.InnerPtr)[_vocab.UnkIndex].Prob = float.NaN;
             for (int currOrder = 1; currOrder <= _order; currOrder++)
             {
+                Console.Error.Write("Calculate probability for {0}-grams\r", currOrder);
                 bool interpolate = discounts != null && discounts[currOrder - 1] != null &&
                                    discounts[currOrder - 1].Interpolate;
                 BinLMIter nGramCountsIter = new BinLMIter(_binFile, currOrder - 1);
@@ -124,6 +126,9 @@ namespace ngram
                 {
                     if ((currOrder > 1 && contextCount[currOrder - 2] == specialIndex))
                         continue;
+                    //if (string.Join(" ", _vocab.GetWords(contextCount))
+                     //   .Contains("zhu rongji and vice premiers"))
+                     //   Console.WriteLine();
                     long startPos = _vocab.BOSIndex;
                     if (reverse)
                         startPos = _vocab.EOSIndex;
@@ -189,7 +194,8 @@ namespace ngram
                         for (long iterPos = startPos; iterPos < endPos; iterPos++)
                         {
                             int count;
-                            int index; float mass;
+                            int index;
+                            float mass;
                             if (currOrder == _order)
                             {
                                 count =
@@ -241,14 +247,13 @@ namespace ngram
                 }
                 ComputeBOWsX(currOrder - 1, interpolate);
             }
-            Console.WriteLine(string.Join(" ", _binFile.ValidNGrams));
+            Console.WriteLine();
             FixupProbs();
             if (!reverse)
-                ((InnerNode*)_binFile.InnerPtr)[_vocab.BOSIndex].Prob = -99;
+                ((InnerNode*) _binFile.InnerPtr)[_vocab.BOSIndex].Prob = -99;
             else
-                ((InnerNode*)_binFile.InnerPtr)[_vocab.EOSIndex].Prob = -99;
-            ((InnerNode*)_binFile.InnerPtr)[_vocab.UnkIndex].Prob = level0Bow;
-            Console.WriteLine(string.Join(" ", _binFile.ValidNGrams));
+                ((InnerNode*) _binFile.InnerPtr)[_vocab.EOSIndex].Prob = -99;
+            ((InnerNode*) _binFile.InnerPtr)[_vocab.UnkIndex].Prob = level0Bow;
             return true;
         }
 
@@ -514,6 +519,8 @@ namespace ngram
         }
         private void ComputeBOWsX(int order, bool interpolate)
         {
+            int vocabsize = VocabSize(_vocab);
+            
             int[] context = new int[order + 1];
             BinLMIter binLMIter = new BinLMIter(_binFile, order);
             long xcurrPos;
@@ -555,7 +562,7 @@ namespace ngram
                         lowLogProb = CalProb(fcontext);
                         denominator -= Math.Pow(10, lowLogProb);
                     }
-                    else lowLogProb = -Math.Log10(VocabSize(_vocab) + 1);
+                    else lowLogProb = -Math.Log10(vocabsize + 1);
                     prob = (float) (Math.Pow(10, prob));
                     if (interpolate)
                         prob += (float) Math.Pow(10, lowLogProb + bow);
@@ -570,7 +577,7 @@ namespace ngram
                     ((InnerNode*) _binFile.InnerPtr)[xcurrPos].Bow =
                         (float) (Math.Log10(numerator) - Math.Log10(denominator));
                 else
-                    level0Bow -= (float) Math.Log10(VocabSize(_vocab) + 1);
+                    level0Bow -= (float)Math.Log10(vocabsize + 1);
             }
         }
 

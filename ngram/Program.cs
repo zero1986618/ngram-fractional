@@ -1,4 +1,5 @@
 ﻿using System;
+using System.IO;
 
 namespace ngram
 {
@@ -33,7 +34,6 @@ namespace ngram
             bool countsAreModified = LMConfig.GetOption("countsAreModified", false);
             bool prepareCountsAtEnd = LMConfig.GetOption("prepareCountsAtEnd", false);
             bool needPrepareCounts = LMConfig.GetOption("needPrepareCounts", false);
-            //binLMx.BinaryFile.vocab = binMaker.Vocab;
             Discount[] discounts = new Discount[order];
             for (int i = 1; i <= order; i++)
             {
@@ -44,10 +44,15 @@ namespace ngram
                 else
                     discounts[i - 1].Estimate(binMaker.CountsOfCounts[i - 1], i);
             }
+            bool applyFracMKNSmoothing = LMConfig.GetOption("applyFracMKNSmoothing", false);
+            Console.WriteLine("applyFracMKNSmoothing：{0}", applyFracMKNSmoothing);
             Console.WriteLine("Step-3:\tBuild Discount Model time:{0} seconds", Util.TimeDiff(DateTime.Now, dateTime));
             dateTime = DateTime.Now;
             bLM bLM = new bLM(binMaker.Vocab, recurseGenBin.BinaryFile);
-            bLM.EstimateMKN(discounts);
+            if (applyFracMKNSmoothing)
+                bLM.EstimateMKN(discounts);
+            else
+                bLM.Estimate(discounts);
             Console.WriteLine("Step-4:\tCalculate Probability time:{0} seconds", Util.TimeDiff(DateTime.Now, dateTime));
             dateTime = DateTime.Now;
             bool dumpBinLM = LMConfig.GetOption("dumpBinLM", false);
@@ -57,7 +62,15 @@ namespace ngram
             if (dumpArpa)
                 recurseGenBin.BinaryFile.DumpArpaLM(lmarpa);
             recurseGenBin.BinaryFile.Dispose();
+            string smoothing = LMConfig.GetOption("smoothing");
             Console.WriteLine("Step-5:\tDump Bin&Arpa Model time:{0} seconds", Util.TimeDiff(DateTime.Now, dateTime));
+
+            Console.WriteLine("Step-6:\tDelete temporary files.");
+            for (int i = 0; i < order; i++)
+                if (File.Exists(smoothing + "." + (i + 1) + "gram.bin"))
+                    File.Delete(smoothing + "." + (i + 1) + "gram.bin");
+            if (File.Exists(countbin))
+                File.Delete(countbin);
             Console.WriteLine("Total time:{0} seconds", Util.TimeDiff(DateTime.Now, dateTimeStart));
         }
     }

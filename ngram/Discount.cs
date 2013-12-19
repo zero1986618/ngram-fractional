@@ -61,15 +61,15 @@ namespace ngram
 
         public const int GtDefaultMinCount = 1;
         public const int GtDefaultMaxCount = 5;
-        public static int[] gtmin = LMConfig.GetOptionList<int>("gtmin"); //new[] { 1, 1, 1, 2, 2, 2, 2, 2, 2, 2 };
-        public static int[] gtmax = LMConfig.GetOptionList<int>("gtmax"); //= new[] { 5, 1, 7, 7, 7, 7, 7, 7, 7, 7 };
+        public static float[] gtmin = LMConfig.GetOptionList<float>("gtmin");
+        public static int[] gtmax = LMConfig.GetOptionList<int>("gtmax");
     }
 
     internal class WittenBell : Discount
     {
-        private readonly int _minCount;
+        private readonly float _minCount;
 
-        public WittenBell(int mincount = 0)
+        public WittenBell(float mincount = 0)
         {
             _minCount = mincount;
         }
@@ -112,7 +112,7 @@ namespace ngram
 
     internal class GoodTuring : Discount
     {
-        public GoodTuring(int mincount = GtDefaultMinCount, int maxcount = GtDefaultMaxCount)
+        public GoodTuring(float mincount = GtDefaultMinCount, int maxcount = GtDefaultMaxCount)
         {
             _minCount = mincount;
             _maxCount = maxcount;
@@ -191,19 +191,19 @@ namespace ngram
         }
 
         private const double ProbEpsilon = 3e-06;
-        private readonly int _minCount;
+        private readonly float _minCount;
         private int _maxCount;
         private readonly double[] _discountCoeffs;
     }
 
     internal class KneserNey : Discount
     {
-        protected long MinCount; // counts below this are set to 0
+        protected float MinCount; // counts below this are set to 0
         protected double Discount1; // discounting constant
         protected bool CountsAreModified; // low-order counts are already modified
         protected bool PrepareCountsAtEnd; // should we modify counts after computing D
 
-        public KneserNey(int mincount = 0, bool countsAreModified = false, bool prepareCountsAtEnd = false)
+        public KneserNey(float mincount = 0, bool countsAreModified = false, bool prepareCountsAtEnd = false)
         {
             MinCount = mincount;
             Discount1 = 0.0;
@@ -224,7 +224,6 @@ namespace ngram
         {
             return (Discount1*observedVocab/totalCount);
         }
-
 
         public override bool Estimate(BinaryFile binaryFile, int order)
         {
@@ -296,7 +295,7 @@ namespace ngram
         private double _discount2; // additional discounting constants
         private double _discount3Plus;
 
-        public ModifiedKneserNey(int mincount = 0, bool countsAreModified = false, bool prepareCountsAtEnd = false)
+        public ModifiedKneserNey(float mincount = 0, bool countsAreModified = false, bool prepareCountsAtEnd = false)
             : base(mincount, countsAreModified, prepareCountsAtEnd)
         {
             _discount2 = 0;
@@ -404,11 +403,11 @@ namespace ngram
             double n2 = countOfCounts[2];
             double n3 = countOfCounts[3];
             double n4 = countOfCounts[4];
-            Console.WriteLine("Modified Kneser-Ney under {0} gram", order);
-            Console.WriteLine("n1 = {0}", n1);
-            Console.WriteLine("n2 = {0}", n2);
-            Console.WriteLine("n3 = {0}", n3);
-            Console.WriteLine("n4 = {0}", n4);
+            Console.WriteLine("Fractional Modified Kneser-Ney under {0} gram", order);
+            Console.WriteLine("n1 = {0:F4}", n1);
+            Console.WriteLine("n2 = {0:F4}", n2);
+            Console.WriteLine("n3 = {0:F4}", n3);
+            Console.WriteLine("n4 = {0:F4}", n4);
             double y = n1/(n1 + 2*n2);
             Discount1 = 1 - 2*y*n2/n1;
             _discount2 = 2 - 3*y*n3/n2;
