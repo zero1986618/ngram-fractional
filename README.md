@@ -11,13 +11,15 @@ Usage:
         
         -text train-text-file 
         
-        -unk -useCutoff cutoff-number 
+        -unk 
+        
+        -useCutoff cutoff-number 
         
         -order order-number 
         
         -vocab dump-vocab-file 
         
-        -revserse language model is 
+        -revserse language model is forward or backward
         
         -dumpBinLM bin-file
         
