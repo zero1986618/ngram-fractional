@@ -11,16 +11,16 @@ namespace ngram
             DateTime dateTime = DateTime.Now;
             DateTime dateTimeStart = DateTime.Now;
             int order = LMConfig.GetOption("order", 5);
-            string lmbin = LMConfig.GetOption("LMBinFile"); //"e.lm.5.pipe.bin";
-            string lmarpa = LMConfig.GetOption("LMArpaFile"); //"e.arpa.5.pipe.1.lm";
+            string lmbin = LMConfig.GetOption("LMBinFile");
+            string lmarpa = LMConfig.GetOption("LMArpaFile");
             string countbin = LMConfig.GetOption("CountBinFile");
             string method = LMConfig.GetOption("smoothing");
             string text = LMConfig.GetOption("text");
+            string weight = LMConfig.GetOption("weight");
             string vocab = LMConfig.GetOption("vocab");
             Console.WriteLine("Start Building {0}-gram LM based on {1} smoothing", order, method);
-            CountsBinMaker binMaker = new CountsBinMaker(text, order);
-            string wfile = LMConfig.GetOption("wfile");
-            binMaker.MakeCountsBin(wfile);
+            CountsBinMaker binMaker = new CountsBinMaker(text, order, weight);
+            binMaker.MakeCountsBin();
             binMaker.Vocab.Dump(vocab);
             
             Console.WriteLine("Step-1:\tMakeCountBin time:{0} seconds", Util.TimeDiff(DateTime.Now, dateTime));

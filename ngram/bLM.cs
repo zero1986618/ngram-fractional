@@ -126,9 +126,6 @@ namespace ngram
                 {
                     if ((currOrder > 1 && contextCount[currOrder - 2] == specialIndex))
                         continue;
-                    //if (string.Join(" ", _vocab.GetWords(contextCount))
-                     //   .Contains("zhu rongji and vice premiers"))
-                     //   Console.WriteLine();
                     long startPos = _vocab.BOSIndex;
                     if (reverse)
                         startPos = _vocab.EOSIndex;
@@ -238,8 +235,6 @@ namespace ngram
                                     ((InnerNode*) _binFile.InnerPtr)[_binFile.PAccCount[currOrder - 1] + iterPos].Prob =
                                         discount == 0 ? float.NaN : prob;
                             }
-
-
                         }
                     if (currOrder > 1)
                         ((InnerNode*) _binFile.InnerPtr)[currPos].Bow = (float) Math.Log10(subtract/totalCount);

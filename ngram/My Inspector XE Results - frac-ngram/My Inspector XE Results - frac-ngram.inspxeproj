@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<root>
+ <rdmgr>
+  <timestamp type="u64_t">1387549811</timestamp>
+  <hostname>del-2013851Mf</hostname>
+  <os>windows</os>
+  <product>Intel® Inspector XE 2013 Update 8</product>
+  <buildNumber type="s32_t">313340</buildNumber>
+  <logicalCPUCount type="s32_t">4</logicalCPUCount>
+  <CPUFrequency type="s64_t">3200000000</CPUFrequency>
+ </rdmgr>
+ <All_Configurations-All_Platforms>
+  <analysis_type_settings>
+   <selected_analysis_type_path>C:\Program Files (x86)\Intel\Inspector XE 2013\config\analysis_type\ti1.cfg</selected_analysis_type_path>
+  </analysis_type_settings>
+  <target_settings>
+   <result_pattern>r@@@{at}</result_pattern>
+   <workloads>
+    <launch type="pointer" type_id="dasID_cctrl2::ApplicationWorkload" ptr_type="dasID_cctrl2::IWorkload">
+     <workload>
+      <targetName>launch</targetName>
+      <result_directory.path>D:\用户目录\Documents\Visual Studio 2013\Projects\ngramc\ngram-fractional\ngram\My Inspector XE Results - frac-ngram\r@@@{at}</result_directory.path>
+      <enable_app_output_log type="bool">false</enable_app_output_log>
+      <project_id>{A7A7250C-542A-4C3A-B7A9-7772FE88C683}</project_id>
+      <launch_app.app_to_launch>D:\用户目录\Documents\Visual Studio 2013\Projects\ngramc\ngram-fractional\ngram\bin\Debug\ngram.exe</launch_app.app_to_launch>
+      <launch_app.working_folder>D:\用户目录\Documents\Visual Studio 2013\Projects\ngramc\ngram-fractional\ngram\bin\Debug</launch_app.working_folder>
+      <launch_app.app_parameters>-applyFracMKNSmoothing 1</launch_app.app_parameters>
+      <search_directories>
+       <item>
+        <value>sym=D:/用户目录/Documents/Visual Studio 2013/Projects/ngramc/ngram-fractional</value>
+       </item>
+      </search_directories>
+      <exclude_modules type="bag"/>
+      <context>
+       <contextValue>
+        <id>appdebug</id>
+        <value>off</value>
+       </contextValue>
+       <contextValue>
+        <id>custom_debugger</id>
+        <value></value>
+       </contextValue>
+       <contextValue>
+        <id>debug_this_problem</id>
+        <value></value>
+       </contextValue>
+       <contextValue>
+        <id>debug_using</id>
+        <value>gdb</value>
+       </contextValue>
+       <contextValue>
+        <id>heartbeat</id>
+        <value type="bool">true</value>
+       </contextValue>
+       <contextValue>
+        <id>modules_switch</id>
+        <value>knob.modules_switch.include</value>
+       </contextValue>
+       <contextValue>
+        <id>mrte_mode</id>
+        <value>managed</value>
+       </contextValue>
+       <contextValue>
+        <id>process_for_analysis</id>
+        <value></value>
+       </contextValue>
+       <contextValue>
+        <id>suppressions</id>
+        <value>delete</value>
+       </contextValue>
+      </context>
+     </workload>
+    </launch>
+   </workloads>
+  </target_settings>
+ </All_Configurations-All_Platforms>
+ <debugger_settings>
+  <debugger_mode>off</debugger_mode>
+  <at_cliname>ti1</at_cliname>
+ </debugger_settings>
+</root>

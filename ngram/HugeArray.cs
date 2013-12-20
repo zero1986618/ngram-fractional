@@ -1,44 +1,5 @@
 namespace ngram
 {
-    /*
-    internal class HugeArray
-    {
-        public HugeArray(int size)
-        {
-            this.size = size;
-            int rows = size/maxAllocateSize + 1;
-            elements = new int[rows][];
-            for (int i = 0; i < elements.Length - 1; i++)
-                elements[i] = new int[maxAllocateSize];
-            elements[elements.Length - 1] = new int[size%maxAllocateSize];
-        }
-        public int Count
-        {
-            get { return size; }
-        }
-        public int Length
-        {
-            get { return size; }
-        }
-
-        public int this[int index]
-        {
-            get
-            {
-                int row = index/maxAllocateSize;
-                return elements[row][index%maxAllocateSize];
-            }
-            set
-            {
-                int row = index/maxAllocateSize;
-                elements[row][index%maxAllocateSize] = value;
-            }
-        }
-        private int size;
-        private const int maxAllocateSize = 0x1FFFFFF0;
-        private int[][] elements;
-    }
-    */
     internal class HugeArray<T>
     {
         public HugeArray(int size)

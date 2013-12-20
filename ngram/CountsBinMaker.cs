@@ -9,13 +9,15 @@ namespace ngram
         public readonly long[][] CountsOfCounts;
         public readonly double[][] FracCountsOfCounts;
         private string _text;
+        private string _weight;
         private int order;
         public Vocab Vocab;
-        public CountsBinMaker(string text, int _order)
+        public CountsBinMaker(string text, int _order, string weight="")
         {
             int mknCount = 5;
             _text = text;
             order = _order;
+            _weight = weight;
             CountsOfCounts = new long[order][];
             FracCountsOfCounts = new double[order][];
             for (int i = 0; i < order; i++)
@@ -24,7 +26,7 @@ namespace ngram
                 CountsOfCounts[i] = new long[Math.Max(mknCount, Discount.gtmax[i + 1] + 2)];
             }
         }
-        public void GetVocab(string wfile = "")
+        public void GetVocab()
         {
             //index 文件会纪录每个句子中valid的n-gram的起始地址
             Vocab = new Vocab();
@@ -36,7 +38,6 @@ namespace ngram
                 if (line == null)
                     break;
                 string[] words = line.Split(new[] {' '}, StringSplitOptions.RemoveEmptyEntries);
-            
                 if(!reverse)
                 {
                     int[] wids = Vocab.AddWords(words);
@@ -58,24 +59,35 @@ namespace ngram
         }
 
         private static bool reverse = LMConfig.GetOption("reverse", false);
-        public void MakeCountsBin(string wfile = "")
+        public void MakeCountsBin()
         {
-            GetVocab(wfile);
-            StreamReader sr = new StreamReader(_text);
+            GetVocab();
             HugeArray<int> warray = new HugeArray<int>(Vocab.WordCounts + (Vocab.LineNums + 1)*Math.Max(0, order - 1));
-            HugeArray<float> weightarray =
-                new HugeArray<float>(Vocab.WordCounts + (Vocab.LineNums + 1)*Math.Max(0, order - 1));
+            StreamReader sweight = null;
+            HugeArray<float> weightarray = null;
+            if (File.Exists(_weight))
+            {
+                sweight = new StreamReader(_weight);
+                weightarray = new HugeArray<float>(Vocab.WordCounts + (Vocab.LineNums + 1)*Math.Max(0, order - 1));
+            }
+            
             BitArray maskarray = new BitArray(Vocab.WordCounts + (Vocab.LineNums + 1)*Math.Max(0, order - 1));
             int linecount = 0;
             int wordcount = 0;
             int wwcount = 0;
             int maskcount = 0;
+            float sentweight = LMConfig.GetOption("sentenceweight", 1.0f);
+            if (sweight != null)
+                sentweight = float.Parse(sweight.ReadLine());
             for (int i = 0; i < order - 1; i++)
             {
                 warray[wordcount++] = reverse ? Vocab.EOSIndex : Vocab.BOSIndex;
-                maskarray[wwcount++] = false;
-                weightarray[maskcount++] = 0.1f;
+                maskarray[maskcount++] = false;
+                if (sweight != null)
+                    weightarray[wwcount++] = sentweight;
             }
+
+            StreamReader sr = new StreamReader(_text);
             while (true)
             {
                 string line = sr.ReadLine();
@@ -101,18 +113,29 @@ namespace ngram
                 foreach (int t in wids)
                 {
                     warray[wordcount++] = t;
-                    weightarray[wwcount++] = 0.1f;
+                    if (sweight != null)
+                        weightarray[wwcount++] = sentweight;
                     maskarray[maskcount++] = true;
                 }
                 for (int i = 0; i < order - 1; i++)
                 {
                     warray[wordcount++] = reverse ? Vocab.BOSIndex : Vocab.EOSIndex;
-                    weightarray[wwcount++] = 1f;
+                    if (sweight != null)
+                        weightarray[wwcount++] = sentweight;
                     maskarray[maskcount++] = false;
+                }
+                if (sweight != null)
+                {
+                    line = sweight.ReadLine();
+                    if (line != null)
+                        sentweight = float.Parse(line);
                 }
                 if (linecount%10000 == 0)
                     Console.Write("\rLine " + linecount);
             }
+            sr.Close();
+            if (sweight != null)
+                sweight.Close();
             Console.Write("\rLine " + linecount);
             Console.WriteLine();
             Console.WriteLine(wordcount - warray.Length);
@@ -133,6 +156,7 @@ namespace ngram
         public static long TotalCount = 0;
         private void SuffixSortWithPrepareCounts(HugeArray<int> wa, BitArray bitArray, int vocabSize, HugeArray<float> ww = null, bool needPrepareCounts = false)
         {
+            float sentweight = LMConfig.GetOption("sentenceweight", 1.0f);
             bool applyFracMKNSmoothing = LMConfig.GetOption("applyFracMKNSmoothing", false);
             string smoothing = LMConfig.GetOption("smoothing");
             if (smoothing == "gt")
@@ -195,13 +219,15 @@ namespace ngram
                 bool finalAppend = false;
                 for (int i = 0; i < sindex.Length || !finalAppend; i++)
                 {
+                    float localweight = sentweight;
+                    if (ww != null && i > 0 && sindex[i - 1] < ww.Length)
+                        localweight = ww[sindex[i - 1]];
                     if (i >= sindex.Length)
                     {
                         finalAppend = true;
                         for (int j = 0; j < order; j++)
                             currgram[j] = int.MaxValue;
                     }
-
                     if (finalAppend || bitArray[sindex[i]])
                     {
                         int currValidPos = 0;
@@ -222,7 +248,7 @@ namespace ngram
                             for (int j = 0; j < currValidPos; j++)
                             {
                                 normCount[j] = 1; //each n-gram appear once                                
-                                fracNormCount[j].UpdateLog(ww == null ? 1 : ww[sindex[i]]);
+                                fracNormCount[j].UpdateLog(localweight);
                             }
                             initial = false;
                             prevValidPos = currValidPos;
@@ -239,10 +265,9 @@ namespace ngram
 
                             for (int j = 0; j < matchIndex; j++)
                             {
-                                normCount[j]++;
-                                fracNormCount[j].UpdateLog(ww[sindex[i]]);
+                                normCount[j]++;                               
+                                fracNormCount[j].UpdateLog(localweight);
                                 int prevIndx = sindex[i] - 1;
-
                                 //need add by one
                                 if (needPrepareCounts && j != order - 1 && wa[sindex[i]] != Vocab.BOSIndex)
                                 {
@@ -251,7 +276,7 @@ namespace ngram
                                         uniqCount[j]++;
                                         appearArrays[j][wa[prevIndx]] = true;
                                     }
-                                    fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(ww != null ? ww[sindex[i]] : 1);
+                                    fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(localweight);
                                 }
                             }
                             for (int j = matchIndex; j < endPosition; j++) //need dump @ Math.Min(order, prevValidPos)
@@ -266,9 +291,7 @@ namespace ngram
                                 ngrams[j]++;
                                 if (ngramCount < CountsOfCounts[j].Length)
                                     CountsOfCounts[j][ngramCount]++;
-
                                 normCount[j] = 0;
-                                double fractCount = 0; //need dump here
                                 //need backward to clear the bitarray[j]
                                 if (needPrepareCounts && j < order - 1 && prevrgram[0] != Vocab.BOSIndex)
                                 {
@@ -286,7 +309,6 @@ namespace ngram
                                             double xcount = 1 - Math.Exp(fracTypeAppearArrays[j][wa[rprevIndx]][0]);
                                             fracTypeAppearArrays[j][wa[rprevIndx]].ResetToLog();
                                             ft.UpdateLog(xcount);
-                                            fractCount += xcount;
                                             appearArrays[j][wa[rprevIndx]] = false;
                                         }
                                         preIndex++;
@@ -308,14 +330,14 @@ namespace ngram
                             for (int j = matchIndex; j < Math.Min(order, currValidPos); j++) //need dump
                             {
                                 normCount[j] = 1;
-                                fracNormCount[j].UpdateLog(ww == null ? 1 : ww[sindex[i]]);
+                                fracNormCount[j].UpdateLog(localweight);
                             }
                             for (int j = matchIndex; j < Math.Min(order - 1, currValidPos); j++) //need dump
                             {
                                 uniqCount[j] = 1;
                                 int prevIndx = sindex[i] - 1;
                                 appearArrays[j][wa[prevIndx]] = true;
-                                fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(ww != null ? ww[sindex[i]] : 1);
+                                fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(localweight);
                             }
                             for (int j = matchIndex; j < currgram.Length; j++)
                                 prevrgram[j] = currgram[j];
@@ -330,7 +352,6 @@ namespace ngram
                 bool interpolate = LMConfig.GetOption("interpolate", true);
                 bool countsAreModified = LMConfig.GetOption("countsAreModified", false);
                 bool prepareCountsAtEnd = LMConfig.GetOption("prepareCountsAtEnd", false);
-             
                 for (int i = 1; i <= order; i++)
                 { 
                     discounts[i - 1] = Discount.GetDiscount(method, i, countsAreModified, prepareCountsAtEnd);
@@ -377,6 +398,9 @@ namespace ngram
                 bool finalAppend = false;
                 for (int i = 0; i < sindex.Length || !finalAppend; i++)
                 {
+                    float localweight = sentweight;
+                    if (ww != null && i > 0 && sindex[i - 1] < ww.Length)
+                        localweight = ww[sindex[i - 1]];
                     if (i >= sindex.Length)
                     {
                         finalAppend = true;
@@ -404,8 +428,8 @@ namespace ngram
                             for (int j = 0; j < currValidPos; j++)
                             {
                                 normCount[j] = 1; //each n-gram appear once
-                                fracNormCount[j].UpdateLog(ww == null ? 1 : ww[sindex[i]]);
-                                fnormCount[j] = (ww == null ? 1 : ww[sindex[i]]);
+                                fracNormCount[j].UpdateLog(localweight);
+                                fnormCount[j] = localweight;
                             }
                             initial = false;
                             prevValidPos = currValidPos;
@@ -423,8 +447,8 @@ namespace ngram
                             for (int j = 0; j < matchIndex; j++)
                             {
                                 normCount[j]++;
-                                fnormCount[j] += (ww == null ? 1 : ww[sindex[i]]);
-                                fracNormCount[j].UpdateLog(ww == null ? 1 : ww[sindex[i]]);
+                                fnormCount[j] += localweight;
+                                fracNormCount[j].UpdateLog(localweight);
                                 int prevIndx = sindex[i] - 1;
                                 //need add by one
                                 if (needPrepareCounts && j != order - 1 && wa[sindex[i]] != Vocab.BOSIndex)
@@ -434,7 +458,7 @@ namespace ngram
                                         uniqCount[j]++;
                                         appearArrays[j][wa[prevIndx]] = true;
                                     }
-                                    fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(ww != null ? ww[sindex[i]] : 1);
+                                    fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(localweight);
                                 }
                             }
                             for (int j = matchIndex; j < endPosition; j++) //need dump @ Math.Min(order, prevValidPos)
@@ -480,23 +504,10 @@ namespace ngram
                                 }
                                 else
                                 {
-                                    fractCount = 1 - Math.Exp(fracNormCount[j][0]);
+                                    //fractCount = 1 - Math.Exp(fracNormCount[j][0]);
                                     fractCount = fnormCount[j];
                                     fracNormCount[j].ChangeLogToReal();
                                     mass = discounts[j].DiscountMass(fracNormCount[j]);
-                                    /*
-                                    if (j == 4 &&
-                                        string.Join(" ", Vocab.GetWords(prevrgram))
-                                            .Contains("zhu rongji and vice"))
-                                    {
-                                        FracType ft = new FracType();
-                                        ft.UpdateLog(0.1);
-                                        ft.UpdateLog(0.1);
-                                        ft.UpdateLog(0.1);
-                                        ft.ChangeLogToReal();
-                                        double xmass = discounts[j].DiscountMass(ft);
-                                        //Console.WriteLine(xmass);
-                                    }*/
                                     for (int k = 1; k <= 5; k++)
                                         FracCountsOfCounts[j][k - 1] += fracNormCount[j][k - 1];
                                 }
@@ -522,15 +533,15 @@ namespace ngram
                             for (int j = matchIndex; j < Math.Min(order, currValidPos); j++) //need dump
                             {
                                 normCount[j] = 1;
-                                fracNormCount[j].UpdateLog(ww == null ? 1 : ww[sindex[i]]);
-                                fnormCount[j] = (ww == null ? 1 : ww[sindex[i]]);
+                                fracNormCount[j].UpdateLog(localweight);
+                                fnormCount[j] = localweight;
                             }
                             for (int j = matchIndex; j < Math.Min(order - 1, currValidPos); j++) //need dump
                             {
                                 uniqCount[j] = 1;
                                 int prevIndx = sindex[i] - 1;
                                 appearArrays[j][wa[prevIndx]] = true;
-                                fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(ww != null ? ww[sindex[i]] : 1);
+                                fracTypeAppearArrays[j][wa[prevIndx]].UpdateLog(localweight);
                             }
                             for (int j = matchIndex; j < currgram.Length; j++)
                                 prevrgram[j] = currgram[j];
