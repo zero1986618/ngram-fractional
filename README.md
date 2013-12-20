@@ -17,5 +17,6 @@ Usage:
         -gtmin
         -gtmax
         -applyFracMKNSmoothing 
+        -weight weight-file for training
 
 If you have any question, please contact yinggong.zhao@gmail.com.
