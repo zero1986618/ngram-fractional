@@ -20,7 +20,7 @@ namespace ngram
                 {
                     if (argList[i].Length <= 1 || argList[i][0] != '-')
                         continue;
-                    if (i + 1 < argList.Length && argList[i].StartsWith("-") && !argList[i + 1].StartsWith("-"))
+                    if ((i + 1 < argList.Length && argList[i].StartsWith("-")) || i + 1 >= argList.Length)
                     {
                         StringBuilder optVal = new StringBuilder("true");
                         string optKey = argList[i].Substring(1).ToLower();

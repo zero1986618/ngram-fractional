@@ -64,7 +64,6 @@ namespace ngram
             recurseGenBin.BinaryFile.Dispose();
             string smoothing = LMConfig.GetOption("smoothing");
             Console.WriteLine("Step-5:\tDump Bin&Arpa Model time:{0} seconds", Util.TimeDiff(DateTime.Now, dateTime));
-
             Console.WriteLine("Step-6:\tDelete temporary files.");
             for (int i = 0; i < order; i++)
                 if (File.Exists(smoothing + "." + (i + 1) + "gram.bin"))
