@@ -5,7 +5,7 @@ A language model tool based on suffix array, which can train LM under both fract
 
 Usage:
    frac-ngram 
-        -smoothing [mkn|gt|wb|kn] 
+        -smoothing [mkn|gt|wb|kn], only mkn smoothing supports both fractional and integer count  at present.
         
         -interpolate [true|false] 
         
