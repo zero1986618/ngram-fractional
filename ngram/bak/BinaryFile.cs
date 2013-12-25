@@ -275,10 +275,7 @@ namespace ngram
         }
 
         public void DumpArpaLM(string arpafile)
-        {            
-            //int[] counts = new int[Order + 1];
-            //for (int level = 1; level <= Order; level++)
-            //    counts[level] = NGramCounts(level);
+        {
             StreamWriter streamWriter = new StreamWriter(arpafile);
             streamWriter.WriteLine();
             streamWriter.WriteLine(@"\data\");

@@ -70,7 +70,6 @@ namespace ngram
                 sweight = new StreamReader(_weight);
                 weightarray = new HugeArray<float>(Vocab.WordCounts + (Vocab.LineNums + 1)*Math.Max(0, order - 1));
             }
-            
             BitArray maskarray = new BitArray(Vocab.WordCounts + (Vocab.LineNums + 1)*Math.Max(0, order - 1));
             int linecount = 0;
             int wordcount = 0;
@@ -262,7 +261,6 @@ namespace ngram
                                     break;
                                 else
                                     matchIndex++;
-
                             for (int j = 0; j < matchIndex; j++)
                             {
                                 normCount[j]++;                               
@@ -368,7 +366,6 @@ namespace ngram
                 FracType[] fracNormCount = new FracType[order];
                 for (int i = 0; i < fracNormCount.Length; i++)
                     fracNormCount[i] = new FracType();
-
                 BinaryWriter[] binaryWriters = new BinaryWriter[order];
                 BitArray[] appearArrays = new BitArray[order - 1];
                 for (int i = 0; i < appearArrays.Length; i++)
@@ -391,7 +388,7 @@ namespace ngram
                 {
                     binaryWriters[0].Write(prevrgram[0]);
                     binaryWriters[0].Write(prevrgram[1]);
-                    if(applyFracMKNSmoothing)
+                    if (applyFracMKNSmoothing)
                         binaryWriters[0].Write(prevrgram[1]);
                 }
                 int prevValidPos = 0;
@@ -399,8 +396,6 @@ namespace ngram
                 for (int i = 0; i < sindex.Length || !finalAppend; i++)
                 {
                     float localweight = sentweight;
-                    //if (ww != null && i > 0 && sindex[i - 1] < ww.Length)
-                    //    localweight = ww[sindex[i - 1]];
                     if (ww != null && i > 0 && i < sindex.Length && sindex[i] < ww.Length)
                         localweight = ww[sindex[i]];
                     if (i >= sindex.Length)
@@ -445,7 +440,6 @@ namespace ngram
                                     break;
                                 else
                                     matchIndex++;
-
                             for (int j = 0; j < matchIndex; j++)
                             {
                                 normCount[j]++;
@@ -471,10 +465,8 @@ namespace ngram
                                     : uniqCount[j];
                                 if (!Vocab.IsNonEvent(prevrgram[j]) && j == 0)
                                     TotalCount += ngramCount;
-                                //if (ngramCount < CountsOfCounts[j].Length)
-                                //    CountsOfCounts[j][ngramCount]++;
-                                double fractCount = 0;//need dump here
-                                double mass;
+                                double fractCount = 0; //need dump here
+                                double mass;                             
                                 //need backward to clear the bitarray[j]
                                 if (needPrepareCounts && j < order - 1 && prevrgram[0] != Vocab.BOSIndex)
                                 {
@@ -500,16 +492,15 @@ namespace ngram
                                             break;
                                     }
                                     ft.ChangeLogToReal();
-                                    mass = discounts[j].DiscountMass(ft);
+                                    mass = discounts[j].DiscountMass(ft, fractCount);
                                     for (int k = 1; k <= 5; k++)
                                         FracCountsOfCounts[j][k - 1] += ft[k - 1];
                                 }
                                 else
                                 {
-                                    //fractCount = 1 - Math.Exp(fracNormCount[j][0]);
                                     fractCount = fnormCount[j];
                                     fracNormCount[j].ChangeLogToReal();
-                                    mass = discounts[j].DiscountMass(fracNormCount[j]);
+                                    mass = discounts[j].DiscountMass(fracNormCount[j], fractCount);
                                     for (int k = 1; k <= 5; k++)
                                         FracCountsOfCounts[j][k - 1] += fracNormCount[j][k - 1];
                                 }
@@ -555,7 +546,6 @@ namespace ngram
                 foreach (BinaryWriter binaryWriter in binaryWriters)
                     binaryWriter.Close();
             }
-
         }
     }
 }

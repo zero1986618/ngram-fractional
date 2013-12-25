@@ -28,7 +28,7 @@ namespace ngram
         {
             return 0.0;
         }
-        public virtual double DiscountMass(FracType ft)
+        public virtual double DiscountMass(FracType ft, double fcount)
         {
             return 1;
         }
@@ -302,10 +302,13 @@ namespace ngram
             _discount3Plus = 0;
         }
 
-        public override double DiscountMass(FracType ft)
+        public override double DiscountMass(FracType ft, double fcount)
         {
+            if (fcount < MinCount)
+                return 0;
             double n3 = 1 - ft[0] - ft[1] - ft[2];
-            if (n3 < 0) n3 = ft[3];
+            if (n3 < 0)
+                n3 = ft[3];
             double mass = Discount1*ft[1] + _discount2*ft[2] + _discount3Plus*n3;
             return mass;
         }

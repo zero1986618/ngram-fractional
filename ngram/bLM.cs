@@ -217,6 +217,8 @@ namespace ngram
                             {
                                 float fcount = Util.Int2Float(count) - mass;
                                 float prob = (float) Math.Log10(fcount/totalCount);
+                                if (mass == 0)
+                                    _binFile.ValidNGrams[currOrder - 1]--;
                                 if (currOrder == _order)
                                     ((LeafNode*) _binFile.FinalPtr)[iterPos].Prob = mass == 0 ? float.NaN : prob;
                                 else
@@ -295,6 +297,7 @@ namespace ngram
                         startPos = ((InnerNode*)_binFile.InnerPtr)[currPos].Child;
                         endPos = ((InnerNode*)_binFile.InnerPtr)[currPos + 1].Child;
                     }
+                  
                     long totalCount = 0;
                     long observedVocab = 0, min2Vocab = 0, min3Vocab = 0;
                     if (_useCutoff)
@@ -530,7 +533,7 @@ namespace ngram
                     startPos = ((InnerNode*) _binFile.InnerPtr)[xcurrPos].Child;
                     bow = ((InnerNode*) _binFile.InnerPtr)[xcurrPos].Bow;
                     endPos = ((InnerNode*) _binFile.InnerPtr)[xcurrPos + 1].Child;
-                }
+                }               
                 int[] fcontext = new int[order];
                 for (long currPos = startPos; currPos < endPos; currPos++) //relative offsest
                 {
